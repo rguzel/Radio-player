@@ -1,0 +1,6 @@
+{
+  "name": "Waveform Radio",
+  "description": "A premium web-based radio application designed for discovery and system-level media integration, supporting Android Auto via the Media Session API.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["audio", "media-session"]
+}
