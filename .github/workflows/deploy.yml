@@ -27,11 +27,11 @@ jobs:
           APP_URL: https://radio.recepguzel.com
 
       - name: Deploy to server
-        uses: easingthemes/ssh-deploy@v5
-        with:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          REMOTE_HOST: ${{ secrets.SSH_HOST }}
-          REMOTE_USER: ${{ secrets.SSH_USER }}
-          SOURCE: dist/
-          TARGET: /home/admincik/radio/dist/
-          ARGS: --delete
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.SSH_HOST }} >> ~/.ssh/known_hosts
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            dist/ ${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}:/home/admincik/radio/dist/
