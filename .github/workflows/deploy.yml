@@ -25,6 +25,11 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           APP_URL: https://radio.recepguzel.com
 
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+
       - name: Deploy to server
         run: |
           mkdir -p ~/.ssh
@@ -32,4 +37,4 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           rsync -avz --delete \
             -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
-            dist/ admincik@192.168.50.82:/home/admincik/radio/dist/
+            dist/ admincik@100.97.22.89:/home/admincik/radio/dist/
