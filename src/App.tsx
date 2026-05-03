@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Play, 
@@ -59,8 +59,18 @@ export default function App() {
 
   const fetchTrending = async () => {
     try {
-      const data = await RadioService.getTopStations(30);
-      setStations(data);
+      // Prioritize Canada and Turkey stations
+      const [caData, trData, topData] = await Promise.all([
+        RadioService.getStationsByCountry('Canada', 15),
+        RadioService.getStationsByCountry('Turkey', 15),
+        RadioService.getTopStations(20)
+      ]);
+
+      // Merge and remove duplicates based on stationuuid
+      const merged = [...caData, ...trData, ...topData];
+      const unique = merged.filter((v, i, a) => a.findIndex(t => t.stationuuid === v.stationuuid) === i);
+      
+      setStations(unique);
     } catch (error) {
       console.error('Failed to fetch stations:', error);
     }
@@ -101,17 +111,38 @@ export default function App() {
     if (playback.isPlaying) {
       audioRef.current.pause();
     } else {
-      audioRef.current.play().catch(e => console.error("Playback error", e));
+      const playPromise = audioRef.current.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(e => {
+          if (e.name !== 'AbortError') console.error("Playback error", e);
+        });
+      }
     }
     setPlayback(prev => ({ ...prev, isPlaying: !prev.isPlaying }));
   };
 
-  const playStation = (station: RadioStation) => {
+  const playStation = async (station: RadioStation) => {
     if (audioRef.current) {
-      audioRef.current.src = station.url_resolved || station.url;
-      audioRef.current.play().catch(e => {
-        console.error("Playback error (likely CORS or invalid URL)", e);
-      });
+      try {
+        // Reset audio state
+        audioRef.current.pause();
+        audioRef.current.src = station.url_resolved || station.url;
+        audioRef.current.load(); // Force reset internal state
+        
+        // Use the promise returned by play() to handle interruptions
+        const playPromise = audioRef.current.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(e => {
+            if (e.name === 'AbortError') {
+              console.log("Playback was aborted (likely by a new selection or pause)");
+            } else {
+              console.error("Playback error (likely CORS or invalid URL):", e);
+            }
+          });
+        }
+      } catch (err) {
+        console.error("Critical playback error:", err);
+      }
     }
     setPlayback(prev => ({
       ...prev,
@@ -124,7 +155,7 @@ export default function App() {
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: station.name,
-        artist: 'Waveform Radio',
+        artist: 'Guzel Radio',
         album: station.country + ' • ' + (station.tags ? station.tags.split(',')[0].toUpperCase() : 'Live'),
         artwork: [
           { src: station.favicon || 'https://images.unsplash.com/photo-1590602847861-f357a9332bbc?w=512&h=512&fit=crop', sizes: '512x512', type: 'image/png' },
@@ -135,7 +166,12 @@ export default function App() {
       navigator.mediaSession.playbackState = 'playing';
 
       navigator.mediaSession.setActionHandler('play', () => {
-        audioRef.current?.play();
+        const playPromise = audioRef.current?.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(e => {
+             if (e.name !== 'AbortError') console.error("MediaSession Play error", e);
+          });
+        }
         setPlayback(prev => ({ ...prev, isPlaying: true }));
         navigator.mediaSession.playbackState = 'playing';
       });
@@ -186,7 +222,6 @@ export default function App() {
         onPlaying={() => setPlayback(p => ({ ...p, isBuffering: false }))}
         onPause={() => setPlayback(p => ({ ...p, isPlaying: false }))}
         onPlay={() => setPlayback(p => ({ ...p, isPlaying: true }))}
-        crossOrigin="anonymous"
       />
 
       {/* Header */}
@@ -195,7 +230,7 @@ export default function App() {
           <div className="w-10 h-10 bg-gradient-to-tr from-amber-500 to-orange-600 rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.4)]">
             <Radio size={24} className="text-black" />
           </div>
-          <h1 className="text-xl font-black tracking-tight text-white italic">WAVE<span className="text-accent not-italic">RADIO</span></h1>
+          <h1 className="text-xl font-black tracking-tight text-white italic">GUZEL<span className="text-accent not-italic">RADIO</span></h1>
         </div>
         
         <div className="flex items-center gap-6">

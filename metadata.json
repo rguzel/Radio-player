@@ -1,6 +1,6 @@
 {
-  "name": "Waveform Radio",
-  "description": "A premium web-based radio application designed for discovery and system-level media integration, supporting Android Auto via the Media Session API.",
+  "name": "Guzel Radio",
+  "description": "Premium global radio app featuring the best of Canada and Turkey, designed for Android Auto.",
   "requestFramePermissions": [],
   "majorCapabilities": ["audio", "media-session"]
 }

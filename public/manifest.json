@@ -1,7 +1,7 @@
 {
-  "name": "Waveform Radio",
-  "short_name": "Waveform",
-  "description": "High-fidelity global radio for Android Auto",
+  "name": "Guzel Radio",
+  "short_name": "Guzel",
+  "description": "Premium Canadian and Turkish radio for Android Auto",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#050505",
