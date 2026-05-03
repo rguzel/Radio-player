@@ -1,20 +1,12 @@
-import { GoogleGenAI } from "@google/genai";
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const MOOD_GENRES: Record<string, string[]> = {
+  focus:  ['lofi', 'ambient', 'classical', 'instrumental', 'study', 'piano'],
+  chill:  ['chillout', 'lounge', 'acoustic', 'downtempo', 'easy listening', 'coffee'],
+  deep:   ['dark ambient', 'deep house', 'synthwave', 'trip-hop', 'electronic', 'minimal'],
+  energy: ['dance', 'pop', 'hip-hop', 'electronic', 'reggaeton', 'edm'],
+};
 
 export class GeminiService {
   static async suggestGenres(mood: string): Promise<string[]> {
-    try {
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: `I'm in a ${mood} mood. Suggest 5 specific musical genres or radio station categories (like 'lofi', 'techno', 'smooth jazz', etc.) that would match this mood. Return only the names of the genres as a comma-separated list without any extra text.`,
-      });
-
-      const text = response.text || "";
-      return text.split(',').map(s => s.trim().toLowerCase());
-    } catch (error) {
-      console.error("Gemini failed to suggest genres:", error);
-      return ['pop', 'rock', 'country', 'jazz', 'classical'];
-    }
+    return MOOD_GENRES[mood] ?? ['pop', 'rock', 'jazz', 'classical', 'electronic'];
   }
 }
