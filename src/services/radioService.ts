@@ -9,9 +9,9 @@ export class RadioService {
   }
 
   static async searchStations(query: string, limit = 50, country?: string): Promise<RadioStation[]> {
-    const params = new URLSearchParams({ limit: String(limit) });
+    const params = new URLSearchParams({ name: query, limit: String(limit) });
     if (country) params.set('country', country);
-    const response = await fetch(`${BASE_URL}/stations/byname/${encodeURIComponent(query)}?${params}`);
+    const response = await fetch(`${BASE_URL}/stations/search?${params}`);
     return response.json();
   }
 
