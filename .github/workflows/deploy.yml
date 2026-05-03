@@ -20,11 +20,8 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build check
+      - name: Build
         run: npm run build
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          APP_URL: https://radio.recepguzel.com
 
       - name: Trigger server deploy
         run: |
