@@ -32,6 +32,22 @@ const MOODS = [
   { id: 'energy', label: 'Vibe', icon: <Sun size={16} />, color: 'yellow' },
 ];
 
+const COUNTRIES = [
+  { label: 'Canada', value: 'Canada' },
+  { label: 'Türkiye', value: 'Turkey' },
+  { label: 'Australia', value: 'Australia' },
+  { label: 'Brazil', value: 'Brazil' },
+  { label: 'France', value: 'France' },
+  { label: 'Germany', value: 'Germany' },
+  { label: 'India', value: 'India' },
+  { label: 'Italy', value: 'Italy' },
+  { label: 'Japan', value: 'Japan' },
+  { label: 'Netherlands', value: 'Netherlands' },
+  { label: 'Spain', value: 'Spain' },
+  { label: 'United Kingdom', value: 'United Kingdom' },
+  { label: 'United States', value: 'United States' },
+];
+
 export default function App() {
   const [stations, setStations] = useState<RadioStation[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -39,6 +55,7 @@ export default function App() {
   const [favorites, setFavorites] = useState<RadioStation[]>([]);
   const [isLoadingMood, setIsLoadingMood] = useState(false);
   const [activeMood, setActiveMood] = useState<string | null>(null);
+  const [selectedCountry, setSelectedCountry] = useState('');
   const [playback, setPlayback] = useState<PlaybackState>({
     currentStation: null,
     isPlaying: false,
@@ -102,6 +119,23 @@ export default function App() {
       console.error('Mood discovery failed:', error);
     } finally {
       setIsLoadingMood(false);
+    }
+  };
+
+  const handleCountryFilter = async (country: string) => {
+    setSelectedCountry(country);
+    if (!country) {
+      setActiveTab('trending');
+      setActiveMood(null);
+      fetchTrending();
+      return;
+    }
+    try {
+      const data = await RadioService.getStationsByCountry(country, 50);
+      setStations(data);
+      setActiveTab('search');
+    } catch (error) {
+      console.error('Country filter failed:', error);
     }
   };
 
@@ -293,25 +327,35 @@ export default function App() {
         {/* Tabs & Filters */}
         <div className="flex items-center justify-between gap-4 mb-6">
           <div className="flex gap-3 overflow-x-auto no-scrollbar py-1">
-            <TabButton 
-              active={activeTab === 'trending'} 
-              onClick={() => { setActiveTab('trending'); setActiveMood(null); fetchTrending(); }}
+            <TabButton
+              active={activeTab === 'trending'}
+              onClick={() => { setActiveTab('trending'); setActiveMood(null); setSelectedCountry(''); fetchTrending(); }}
               icon={<TrendingUp size={16} />}
               label="Trending"
             />
-            <TabButton 
-              active={activeTab === 'favorites'} 
-              onClick={() => { setActiveTab('favorites'); setActiveMood(null); }}
+            <TabButton
+              active={activeTab === 'favorites'}
+              onClick={() => { setActiveTab('favorites'); setActiveMood(null); setSelectedCountry(''); }}
               icon={<Heart size={16} />}
               label="Favorites"
             />
-            <TabButton 
-              active={activeTab === 'search'} 
-              onClick={() => { setActiveTab('search'); setActiveMood(null); }}
+            <TabButton
+              active={activeTab === 'search'}
+              onClick={() => { setActiveTab('search'); setActiveMood(null); setSelectedCountry(''); }}
               icon={<Globe size={16} />}
               label="Discovery"
             />
           </div>
+          <select
+            value={selectedCountry}
+            onChange={(e) => handleCountryFilter(e.target.value)}
+            className="bg-white/5 border border-white/10 text-sm text-slate-300 rounded-full px-4 py-2.5 focus:outline-none focus:border-accent/40 cursor-pointer shrink-0"
+          >
+            <option value="" className="bg-slate-900 text-slate-300">All Countries</option>
+            {COUNTRIES.map(c => (
+              <option key={c.value} value={c.value} className="bg-slate-900 text-slate-300">{c.label}</option>
+            ))}
+          </select>
         </div>
 
         {/* Station List */}
