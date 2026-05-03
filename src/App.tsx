@@ -34,7 +34,7 @@ const MOODS = [
 
 const COUNTRIES = [
   { label: 'Canada', value: 'Canada' },
-  { label: 'Türkiye', value: 'Turkey' },
+  { label: 'Türkiye', value: 'Türkiye' },
   { label: 'Australia', value: 'Australia' },
   { label: 'Brazil', value: 'Brazil' },
   { label: 'France', value: 'France' },
@@ -79,7 +79,7 @@ export default function App() {
       // Prioritize Canada and Turkey stations
       const [caData, trData, topData] = await Promise.all([
         RadioService.getStationsByCountry('Canada', 15),
-        RadioService.getStationsByCountry('Turkey', 15),
+        RadioService.getStationsByCountry('Türkiye', 15),
         RadioService.getTopStations(20)
       ]);
 
