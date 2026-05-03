@@ -97,7 +97,7 @@ export default function App() {
     e.preventDefault();
     if (!searchQuery.trim()) return;
     try {
-      const data = await RadioService.searchStations(searchQuery);
+      const data = await RadioService.searchStations(searchQuery, 50, selectedCountry || undefined);
       setStations(data);
       setActiveTab('search');
     } catch (error) {

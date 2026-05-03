@@ -8,8 +8,10 @@ export class RadioService {
     return response.json();
   }
 
-  static async searchStations(query: string, limit = 50): Promise<RadioStation[]> {
-    const response = await fetch(`${BASE_URL}/stations/byname/${encodeURIComponent(query)}?limit=${limit}`);
+  static async searchStations(query: string, limit = 50, country?: string): Promise<RadioStation[]> {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (country) params.set('country', country);
+    const response = await fetch(`${BASE_URL}/stations/byname/${encodeURIComponent(query)}?${params}`);
     return response.json();
   }
 
