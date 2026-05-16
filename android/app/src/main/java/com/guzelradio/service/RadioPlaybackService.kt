@@ -90,6 +90,32 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
     private fun initExoPlayer() {
         exoPlayer = ExoPlayer.Builder(this).build()
         exoPlayer.addListener(object : Player.Listener {
+            override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
+                // This is called when stream metadata (ICY/RDS) changes
+                val title = mediaMetadata.title ?: mediaMetadata.displayTitle
+                val artist = mediaMetadata.artist
+
+                val metadataBuilder = MediaMetadataCompat.Builder()
+                
+                // Keep station info if track info is missing
+                val displayTitle = if (!title.isNullOrBlank()) title.toString() else currentStation?.name ?: "Unknown"
+                val displayArtist = if (!artist.isNullOrBlank()) artist.toString() else "Live Radio"
+
+                val placeholderUri = "android.resource://${packageName}/drawable/ic_placeholder_radio"
+                val iconUri = currentStation?.favicon?.takeIf { it.isNotBlank() } ?: placeholderUri
+
+                metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, displayTitle)
+                metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, displayArtist)
+                metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, "Guzel Radio")
+                metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, displayTitle)
+                metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, displayArtist)
+                metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON_URI, iconUri)
+                metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI, iconUri)
+
+                mediaSession.setMetadata(metadataBuilder.build())
+                updateNotification()
+            }
+
             override fun onPlaybackStateChanged(state: Int) {
                 updatePlaybackState()
                 if (state == Player.STATE_READY && exoPlayer.playWhenReady) {
@@ -269,10 +295,18 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
         currentUuid = uuid
         playReported = false
 
+        val placeholderUri = "android.resource://${packageName}/drawable/ic_placeholder_radio"
+        val iconUri = if (!faviconUrl.isNullOrBlank()) faviconUrl else placeholderUri
+
         // Update metadata
         val metadata = MediaMetadataCompat.Builder()
             .putString(MediaMetadataCompat.METADATA_KEY_TITLE, name ?: "Unknown")
             .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "Live Radio")
+            .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, "Guzel Radio")
+            .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE, name ?: "Unknown")
+            .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_SUBTITLE, "Live Radio")
+            .putString(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON_URI, iconUri)
+            .putString(MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI, iconUri)
             .build()
         mediaSession.setMetadata(metadata)
 
@@ -334,17 +368,17 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
                 serviceScope.launch {
                     val stations = repository.fetchStations(category)
                     categoryStationCache[category] = stations
+                    
+                    val placeholderUri = "android.resource://${packageName}/drawable/ic_placeholder_radio"
+                    
                     val items = stations.map { station ->
+                        val iconUri = station.favicon?.takeIf { it.isNotBlank() } ?: placeholderUri
                         val desc = MediaDescriptionCompat.Builder()
                             .setMediaId("$STATION_PREFIX${station.uuid}")
                             .setTitle(station.name)
                             .setSubtitle(station.displayCodec)
                             .setMediaUri(Uri.parse(station.streamUrl))
-                            .apply {
-                                station.favicon?.takeIf { it.isNotBlank() }?.let {
-                                    setIconUri(Uri.parse(it))
-                                }
-                            }
+                            .setIconUri(Uri.parse(iconUri))
                             .build()
                         MediaBrowserCompat.MediaItem(desc, MediaBrowserCompat.MediaItem.FLAG_PLAYABLE)
                     }

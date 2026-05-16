@@ -51,6 +51,9 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
     private val _isBuffering = MutableStateFlow(false)
     val isBuffering: StateFlow<Boolean> = _isBuffering.asStateFlow()
 
+    private val _nowPlaying = MutableStateFlow<String?>(null)
+    val nowPlaying: StateFlow<String?> = _nowPlaying.asStateFlow()
+
     private val _favorites = MutableStateFlow<Set<String>>(emptySet())
     val favorites: StateFlow<Set<String>> = _favorites.asStateFlow()
 
@@ -88,7 +91,20 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
         }
 
         override fun onMetadataChanged(metadata: MediaMetadataCompat?) {
-            // If we want to update current station name from metadata we can here
+            if (metadata == null) {
+                _nowPlaying.value = null
+                return
+            }
+            val title = metadata.getString(MediaMetadataCompat.METADATA_KEY_TITLE)
+            val artist = metadata.getString(MediaMetadataCompat.METADATA_KEY_ARTIST)
+            
+            if (!title.isNullOrBlank() && artist != "Live Radio") {
+                _nowPlaying.value = "$artist - $title"
+            } else if (!title.isNullOrBlank()) {
+                _nowPlaying.value = title
+            } else {
+                _nowPlaying.value = null
+            }
         }
     }
 

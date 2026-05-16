@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Background -->
+    <path
+        android:fillColor="#1E293B"
+        android:pathData="M10,30h88v58h-88z" />
+    <!-- Radio Body -->
+    <path
+        android:fillColor="#F59E0B"
+        android:pathData="M15,35h78v48h-78z" />
+    <!-- Speaker Grill -->
+    <path
+        android:fillColor="#0F172A"
+        android:pathData="M20,40h30v38h-30z" />
+    <path
+        android:strokeColor="#334155"
+        android:strokeWidth="1"
+        android:pathData="M20,45h30M20,50h30M20,55h30M20,60h30M20,65h30M20,70h30" />
+    <!-- Tuning Dial -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M60,45h25v10h-25z" />
+    <path
+        android:fillColor="#EF4444"
+        android:pathData="M70,45h2v10h-2z" />
+    <!-- Knobs -->
+    <path
+        android:fillColor="#0F172A"
+        android:pathData="M65,65a5,5 0,1 1,-10 0a5,5 0,1 1,10 0" />
+    <path
+        android:fillColor="#0F172A"
+        android:pathData="M80,65a5,5 0,1 1,-10 0a5,5 0,1 1,10 0" />
+    <!-- Handle -->
+    <path
+        android:strokeColor="#CBD5E1"
+        android:strokeWidth="4"
+        android:pathData="M30,30V20c0,-2 2,-4 4,-4h40c2,0 4,2 4,4v10" />
+    <!-- Antenna -->
+    <path
+        android:strokeColor="#CBD5E1"
+        android:strokeWidth="2"
+        android:pathData="M85,30L95,10" />
+</vector>

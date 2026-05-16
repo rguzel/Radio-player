@@ -81,6 +81,7 @@ fun StationListScreen(
     val currentStation by viewModel.currentStation.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
     val isBuffering by viewModel.isBuffering.collectAsState()
+    val nowPlaying by viewModel.nowPlaying.collectAsState()
     val favorites by viewModel.favorites.collectAsState()
     val hasMore by viewModel.hasMore.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
@@ -254,6 +255,7 @@ fun StationListScreen(
             station = currentStation,
             isPlaying = isPlaying,
             isBuffering = isBuffering,
+            nowPlaying = nowPlaying,
             isFavorite = currentStation?.uuid?.let { it in favorites } ?: false,
             onPlayPause = { viewModel.togglePlayPause() },
             onFavoriteToggle = {

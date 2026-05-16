@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.guzelradio.R
 import com.guzelradio.data.Station
 import com.guzelradio.ui.theme.AccentColor
 import com.guzelradio.ui.theme.CardBgColor
@@ -49,6 +50,7 @@ fun PlayerBar(
     station: Station?,
     isPlaying: Boolean,
     isBuffering: Boolean,
+    nowPlaying: String?,
     isFavorite: Boolean,
     onPlayPause: () -> Unit,
     onFavoriteToggle: () -> Unit,
@@ -86,7 +88,7 @@ fun PlayerBar(
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(
-                    text = station.name,
+                    text = if (!nowPlaying.isNullOrBlank()) nowPlaying else station.name,
                     color = TextPrimary,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -94,7 +96,7 @@ fun PlayerBar(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = if (isBuffering) "Buffering…" else if (isPlaying) "Live" else "Paused",
+                    text = if (isBuffering) "Buffering…" else if (!nowPlaying.isNullOrBlank()) station.name else "Live",
                     color = AccentColor,
                     fontSize = 11.sp,
                     maxLines = 1
@@ -164,18 +166,19 @@ fun StationAvatar(
             .clip(CircleShape)
             .background(Color(0xFF334155))
     ) {
-        if (!faviconUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = faviconUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .size(size.dp)
-                    .clip(CircleShape),
-                onError = { /* will show initials below */ }
-            )
-        }
-        // Initials always rendered under image; if image loads it covers this
+        val model = if (!faviconUrl.isNullOrBlank()) faviconUrl else R.drawable.ic_placeholder_radio
+        
+        AsyncImage(
+            model = model,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier
+                .size(size.dp)
+                .clip(CircleShape),
+            onError = { /* will show initials below */ }
+        )
+        
+        // Initials rendered under image; if image loads it covers this
         if (faviconUrl.isNullOrBlank()) {
             Text(
                 text = initials,
