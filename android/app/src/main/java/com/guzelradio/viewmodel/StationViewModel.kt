@@ -24,12 +24,9 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
 
     companion object {
         private const val TAG = "StationViewModel"
-        private const val PREFS_NAME = "guzel_radio_prefs"
-        private const val PREFS_KEY_FAVORITES = "favorites"
     }
 
-    private val repository = RadioRepository.getInstance()
-    private val prefs = application.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
+    private val repository = RadioRepository.getInstance(application)
 
     // ── UI State ──────────────────────────────────────────────────────────────
 
@@ -41,6 +38,9 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
 
     private val _selectedCategory = MutableStateFlow(Category.ALL)
     val selectedCategory: StateFlow<Category> = _selectedCategory.asStateFlow()
+
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
     private val _currentStation = MutableStateFlow<Station?>(null)
     val currentStation: StateFlow<Station?> = _currentStation.asStateFlow()
@@ -118,7 +118,7 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         loadFavorites()
-        loadStations(Category.ALL, reset = true)
+        loadStations(reset = true)
     }
 
     // ── Data Loading ──────────────────────────────────────────────────────────
@@ -126,15 +126,24 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
     fun selectCategory(category: Category) {
         if (_selectedCategory.value == category) return
         _selectedCategory.value = category
-        loadStations(category, reset = true)
+        _searchQuery.value = "" // Clear search when category changes
+        loadStations(reset = true)
+    }
+
+    fun search(query: String) {
+        _searchQuery.value = query
+        loadStations(reset = true)
     }
 
     fun loadMore() {
         if (_isLoading.value || !_hasMore.value) return
-        loadStations(_selectedCategory.value, reset = false)
+        loadStations(reset = false)
     }
 
-    private fun loadStations(category: Category, reset: Boolean) {
+    private fun loadStations(reset: Boolean) {
+        val category = _selectedCategory.value
+        val query = _searchQuery.value
+
         if (reset) {
             currentOffset = 0
             _hasMore.value = true
@@ -145,7 +154,7 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
             _isLoading.value = true
             _errorMessage.value = null
             try {
-                val newStations = repository.fetchStations(category, offset = currentOffset)
+                val newStations = repository.fetchStations(category, offset = currentOffset, query = query)
                 val current = if (reset) newStations else _stations.value + newStations
                 _stations.value = current
                 currentOffset += newStations.size
@@ -200,25 +209,26 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
         _isBuffering.value = false
     }
 
+    fun skipNext() {
+        mediaController?.transportControls?.skipToNext()
+    }
+
+    fun skipPrevious() {
+        mediaController?.transportControls?.skipToPrevious()
+    }
+
     // ── Favorites ─────────────────────────────────────────────────────────────
 
     private fun loadFavorites() {
-        val saved = prefs.getStringSet(PREFS_KEY_FAVORITES, emptySet()) ?: emptySet()
-        _favorites.value = saved.toSet()
+        _favorites.value = repository.getFavorites()
     }
 
     fun toggleFavorite(uuid: String) {
-        val current = _favorites.value.toMutableSet()
-        if (uuid in current) {
-            current.remove(uuid)
-        } else {
-            current.add(uuid)
-        }
-        _favorites.value = current
-        prefs.edit().putStringSet(PREFS_KEY_FAVORITES, current).apply()
+        repository.toggleFavorite(uuid)
+        _favorites.value = repository.getFavorites()
     }
 
-    fun isFavorite(uuid: String): Boolean = uuid in _favorites.value
+    fun isFavorite(uuid: String): Boolean = repository.isFavorite(uuid)
 
     // ── Cleanup ───────────────────────────────────────────────────────────────
 

@@ -55,7 +55,7 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
     private lateinit var mediaSession: MediaSessionCompat
     private lateinit var exoPlayer: ExoPlayer
     private lateinit var stateBuilder: PlaybackStateCompat.Builder
-    private val repository = RadioRepository.getInstance()
+    private lateinit var repository: RadioRepository
     private val serviceScope = CoroutineScope(Dispatchers.Main + Job())
 
     // Cache of station lists per category for Android Auto browsing
@@ -69,6 +69,7 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
 
     override fun onCreate() {
         super.onCreate()
+        repository = RadioRepository.getInstance(this)
         createNotificationChannel()
         initExoPlayer()
         initMediaSession()
@@ -309,7 +310,7 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
         when {
             parentId == ROOT_ID -> {
                 // Return list of categories
-                val categories = Category.all().map { category ->
+                val categories = Category.entries.map { category ->
                     val desc = MediaDescriptionCompat.Builder()
                         .setMediaId("$CATEGORY_PREFIX${category.name}")
                         .setTitle(category.label)
@@ -391,6 +392,33 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
             when (action) {
                 ACTION_PLAY -> exoPlayer.play()
                 ACTION_PAUSE -> exoPlayer.pause()
+            }
+        }
+
+        override fun onSkipToNext() {
+            skipToStation(true)
+        }
+
+        override fun onSkipToPrevious() {
+            skipToStation(false)
+        }
+
+        private fun skipToStation(forward: Boolean) {
+            serviceScope.launch {
+                val favorites = repository.fetchFavoriteStations()
+                if (favorites.isEmpty()) return@launch
+
+                val currentIndex = favorites.indexOfFirst { it.uuid == currentUuid }
+                val nextIndex = if (currentIndex == -1) {
+                    0
+                } else {
+                    if (forward) {
+                        (currentIndex + 1) % favorites.size
+                    } else {
+                        (currentIndex - 1 + favorites.size) % favorites.size
+                    }
+                }
+                playStation(favorites[nextIndex])
             }
         }
 

@@ -14,7 +14,7 @@ interface HealthApi {
     @GET("api/health")
     suspend fun getHealth(
         @Query("uuids") uuids: String
-    ): List<HealthResponse>
+    ): Map<String, HealthResponse>
 
     /**
      * Get top stations by play count from our health API.
@@ -22,7 +22,7 @@ interface HealthApi {
     @GET("api/health/top")
     suspend fun getTopStations(
         @Query("limit") limit: Int = 50
-    ): TopStationsResponse
+    ): List<TopStationEntry>
 
     /**
      * Report a successful play for a station.

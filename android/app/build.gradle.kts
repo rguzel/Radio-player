@@ -63,10 +63,15 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation(libs.androidx.material.icons.extended)
     implementation(libs.lifecycle.viewmodel.compose)
 
     // Media3 / ExoPlayer
     implementation(libs.media3.exoplayer)
+    implementation(libs.media3.exoplayer.hls)
+    implementation(libs.media3.exoplayer.dash)
+    implementation(libs.media3.exoplayer.rtsp)
+    implementation(libs.media3.exoplayer.smoothstreaming)
     implementation(libs.media3.session)
     implementation(libs.media3.ui)
 

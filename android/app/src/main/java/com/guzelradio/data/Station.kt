@@ -31,22 +31,27 @@ data class Station(
 }
 
 data class HealthResponse(
-    @SerializedName("uuid") val uuid: String,
-    @SerializedName("success_rate") val successRate: Float?,
-    @SerializedName("total_checks") val totalChecks: Int?
-)
-
-data class TopStationsResponse(
-    @SerializedName("stations") val stations: List<TopStationEntry>?
-)
+    @SerializedName("successes") val successes: Int?,
+    @SerializedName("failures") val failures: Int?
+) {
+    val successRate: Float?
+        get() {
+            val s = successes ?: 0
+            val f = failures ?: 0
+            val total = s + f
+            return if (total > 0) s.toFloat() / total else null
+        }
+}
 
 data class TopStationEntry(
-    @SerializedName("uuid") val uuid: String,
-    @SerializedName("play_count") val playCount: Int?
+    @SerializedName("stationuuid") val uuid: String,
+    @SerializedName("successes") val successes: Int?,
+    @SerializedName("failures") val failures: Int?
 )
 
 enum class Category(val label: String, val tag: String?) {
     ALL("All", null),
+    FAVORITES("Favorites", null),
     MOST_PLAYED("Most Played", null),
     POP("Pop", "pop"),
     CLASSICAL("Classical", "classical"),
@@ -55,8 +60,4 @@ enum class Category(val label: String, val tag: String?) {
     INTERNATIONAL("International", "international"),
     BROADCAST("Broadcast", "broadcast"),
     COMEDY("Comedy", "comedy");
-
-    companion object {
-        fun all(): List<Category> = values().toList()
-    }
 }

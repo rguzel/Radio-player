@@ -21,6 +21,8 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,6 +52,8 @@ fun PlayerBar(
     isFavorite: Boolean,
     onPlayPause: () -> Unit,
     onFavoriteToggle: () -> Unit,
+    onSkipNext: () -> Unit,
+    onSkipPrevious: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     AnimatedVisibility(
@@ -64,17 +68,17 @@ fun PlayerBar(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(CardBgColor)
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 8.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Station logo / initials
             StationAvatar(
                 faviconUrl = station.favicon,
                 initials = station.initials,
-                size = 44
+                size = 40
             )
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(8.dp))
 
             // Station info
             Column(
@@ -84,7 +88,7 @@ fun PlayerBar(
                 Text(
                     text = station.name,
                     color = TextPrimary,
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -92,42 +96,54 @@ fun PlayerBar(
                 Text(
                     text = if (isBuffering) "Buffering…" else if (isPlaying) "Live" else "Paused",
                     color = AccentColor,
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     maxLines = 1
                 )
             }
 
-            // Favorite button
-            IconButton(onClick = onFavoriteToggle) {
-                Icon(
-                    imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                    contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
-                    tint = if (isFavorite) AccentColor else TextSecondary
-                )
-            }
-
-            // Play/Pause button
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(AccentColor)
-                    .clickable { onPlayPause() }
-            ) {
-                if (isBuffering) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(22.dp),
-                        color = Color.Black,
-                        strokeWidth = 2.dp
-                    )
-                } else {
+            // Controls
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Favorite button
+                IconButton(onClick = onFavoriteToggle, modifier = Modifier.size(36.dp)) {
                     Icon(
-                        imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        tint = Color.Black,
-                        modifier = Modifier.size(22.dp)
+                        imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                        contentDescription = "Toggle favorite",
+                        tint = if (isFavorite) AccentColor else TextSecondary,
+                        modifier = Modifier.size(20.dp)
                     )
+                }
+
+                IconButton(onClick = onSkipPrevious, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous", tint = TextPrimary)
+                }
+
+                // Play/Pause button
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(AccentColor)
+                        .clickable { onPlayPause() }
+                ) {
+                    if (isBuffering) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = Color.Black,
+                            strokeWidth = 2.dp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            tint = Color.Black,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                IconButton(onClick = onSkipNext, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Filled.SkipNext, contentDescription = "Next", tint = TextPrimary)
                 }
             }
         }

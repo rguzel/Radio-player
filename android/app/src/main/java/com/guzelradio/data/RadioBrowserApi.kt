@@ -33,6 +33,20 @@ interface RadioBrowserApi {
     ): List<Station>
 
     /**
+     * Stations filtered by name
+     */
+    @GET("stations/search")
+    suspend fun searchStationsByName(
+        @Query("name") name: String,
+        @Query("country") country: String = "Türkiye",
+        @Query("limit") limit: Int = 100,
+        @Query("offset") offset: Int = 0,
+        @Query("hidebroken") hideBroken: Boolean = true,
+        @Query("order") order: String = "clickcount",
+        @Query("reverse") reverse: Boolean = true
+    ): List<Station>
+
+    /**
      * Fetch stations by a list of UUIDs (used for Most Played)
      */
     @GET("stations/byuuid")

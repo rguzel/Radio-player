@@ -9,11 +9,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -23,18 +26,25 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,6 +77,7 @@ fun StationListScreen(
     val stations by viewModel.stations.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val selectedCategory by viewModel.selectedCategory.collectAsState()
+    val searchQuery by viewModel.searchQuery.collectAsState()
     val currentStation by viewModel.currentStation.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
     val isBuffering by viewModel.isBuffering.collectAsState()
@@ -75,6 +86,7 @@ fun StationListScreen(
     val errorMessage by viewModel.errorMessage.collectAsState()
 
     val gridState = rememberLazyGridState()
+    var isSearchExpanded by remember { mutableStateOf(false) }
 
     // Auto-load more when nearing the bottom
     LaunchedEffect(gridState) {
@@ -97,30 +109,63 @@ fun StationListScreen(
             .fillMaxSize()
             .background(BackgroundColor)
     ) {
-        // App title bar
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Guzel Radio",
-                color = AccentColor,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.weight(1f))
-            Text(
-                text = "Türkiye",
-                color = TextSecondary,
-                fontSize = 13.sp
-            )
+        // App title bar / Search bar
+        Box(modifier = Modifier.statusBarsPadding()) {
+            if (isSearchExpanded) {
+                TextField(
+                    value = searchQuery,
+                    onValueChange = { viewModel.search(it) },
+                    placeholder = { Text("Search stations…", color = TextSecondary) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = CardBgColor,
+                        unfocusedContainerColor = CardBgColor,
+                        focusedTextColor = TextPrimary,
+                        unfocusedTextColor = TextPrimary,
+                        cursorColor = AccentColor,
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent
+                    ),
+                    shape = RoundedCornerShape(24.dp),
+                    leadingIcon = {
+                        Icon(Icons.Filled.Search, contentDescription = null, tint = TextSecondary)
+                    },
+                    trailingIcon = {
+                        IconButton(onClick = {
+                            isSearchExpanded = false
+                            viewModel.search("")
+                        }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Close search", tint = TextSecondary)
+                        }
+                    },
+                    singleLine = true
+                )
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Guzel Radio",
+                        color = AccentColor,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
+                    IconButton(onClick = { isSearchExpanded = true }) {
+                        Icon(Icons.Filled.Search, contentDescription = "Search", tint = TextPrimary)
+                    }
+                }
+            }
         }
 
         // Category tabs
         CategoryTabs(
-            categories = Category.all(),
+            categories = Category.entries,
             selectedCategory = selectedCategory,
             onCategorySelected = { viewModel.selectCategory(it) }
         )
@@ -213,7 +258,10 @@ fun StationListScreen(
             onPlayPause = { viewModel.togglePlayPause() },
             onFavoriteToggle = {
                 currentStation?.uuid?.let { viewModel.toggleFavorite(it) }
-            }
+            },
+            onSkipNext = { viewModel.skipNext() },
+            onSkipPrevious = { viewModel.skipPrevious() },
+            modifier = Modifier.navigationBarsPadding()
         )
     }
 }
