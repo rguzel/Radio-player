@@ -59,6 +59,7 @@ dependencies {
     implementation(libs.androidx.wear.compose.navigation)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.material.icons.extended)
     
     // We will eventually depend on a shared data module
     // implementation(project(":shared"))
