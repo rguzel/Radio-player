@@ -5,7 +5,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.support.v4.media.MediaBrowserCompat
 import android.support.v4.media.MediaDescriptionCompat
@@ -197,7 +199,15 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
     private fun updateNotification() {
         val notification = buildNotification()
         if (exoPlayer.isPlaying || exoPlayer.playbackState == Player.STATE_BUFFERING) {
-            startForeground(NOTIFICATION_ID, notification)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID, 
+                    notification, 
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
         } else {
             stopForeground(STOP_FOREGROUND_DETACH)
             val nm = getSystemService(NotificationManager::class.java)

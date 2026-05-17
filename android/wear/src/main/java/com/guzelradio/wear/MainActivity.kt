@@ -25,10 +25,10 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -44,10 +44,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.wear.compose.material.AutoCenteringParams
+import androidx.wear.compose.foundation.lazy.AutoCenteringParams
+import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.items
+import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material.Button
 import androidx.wear.compose.material.ButtonDefaults
 import androidx.wear.compose.material.Chip
@@ -55,10 +59,7 @@ import androidx.wear.compose.material.ChipDefaults
 import androidx.wear.compose.material.CircularProgressIndicator
 import androidx.wear.compose.material.Icon
 import androidx.wear.compose.material.MaterialTheme
-import androidx.wear.compose.material.ScalingLazyColumn
 import androidx.wear.compose.material.Text
-import androidx.wear.compose.material.items
-import androidx.wear.compose.material.rememberScalingLazyListState
 import com.guzelradio.data.Category
 import com.guzelradio.data.RadioRepository
 import com.guzelradio.data.Station
@@ -75,6 +76,7 @@ class MainActivity : ComponentActivity() {
     private val currentStation = MutableStateFlow<Station?>(null)
     private val isPlaying = MutableStateFlow(false)
     private val isBuffering = MutableStateFlow(false)
+    private val playerError = MutableStateFlow<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -89,10 +91,10 @@ class MainActivity : ComponentActivity() {
                     this@MainActivity.isBuffering.value = state == Player.STATE_BUFFERING
                 }
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                    // Prevent exit, just stop and reset
                     stop()
                     this@MainActivity.isPlaying.value = false
                     this@MainActivity.isBuffering.value = false
+                    this@MainActivity.playerError.value = "Station Offline"
                 }
             })
         }
@@ -107,6 +109,7 @@ class MainActivity : ComponentActivity() {
             val current by currentStation.collectAsState()
             val playing by isPlaying.collectAsState()
             val buffering by isBuffering.collectAsState()
+            val error by playerError.collectAsState()
 
             MaterialTheme {
                 WearApp(
@@ -114,11 +117,16 @@ class MainActivity : ComponentActivity() {
                     currentStation = current,
                     isPlaying = playing,
                     isBuffering = buffering,
-                    onPlay = { station -> playStation(station) },
+                    errorMessage = error,
+                    onPlay = { station -> 
+                        playerError.value = null
+                        playStation(station) 
+                    },
                     onTogglePlay = {
                         if (playing) exoPlayer?.pause() else exoPlayer?.play()
                     },
                     onSkip = { forward ->
+                        playerError.value = null
                         val list = stationList
                         if (list.isEmpty()) return@WearApp
                         val index = list.indexOfFirst { it.uuid == current?.uuid }
@@ -135,7 +143,7 @@ class MainActivity : ComponentActivity() {
         exoPlayer?.let { player ->
             player.stop()
             player.clearMediaItems()
-            player.setMediaItem(MediaItem.fromUri(Uri.parse(station.streamUrl)))
+            player.setMediaItem(MediaItem.fromUri(station.streamUrl.toUri()))
             player.prepare()
             player.play()
         }
@@ -153,6 +161,7 @@ fun WearApp(
     currentStation: Station?,
     isPlaying: Boolean,
     isBuffering: Boolean,
+    errorMessage: String?,
     onPlay: (Station) -> Unit,
     onTogglePlay: () -> Unit,
     onSkip: (Boolean) -> Unit
@@ -179,6 +188,18 @@ fun WearApp(
                         style = MaterialTheme.typography.caption1,
                         color = Color(0xFFF59E0B)
                     )
+                }
+
+                if (errorMessage != null) {
+                    item {
+                        Text(
+                            text = errorMessage,
+                            color = Color.Red,
+                            style = MaterialTheme.typography.caption2,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                        )
+                    }
                 }
                 
                 items(stationList) { station ->
@@ -218,7 +239,7 @@ fun PlayerScreen(
     val focusRequester = remember { FocusRequester() }
     
     var volume by remember { 
-        mutableStateOf(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)) 
+        mutableIntStateOf(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC))
     }
     val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
 
@@ -266,7 +287,7 @@ fun PlayerScreen(
 
             // Volume indicator
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.VolumeUp, contentDescription = null, modifier = Modifier.size(12.dp))
+                Icon(Icons.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(12.dp))
                 Spacer(modifier = Modifier.width(4.dp))
                 Text("${(volume * 100 / maxVolume)}%", style = MaterialTheme.typography.caption3)
             }
@@ -274,13 +295,14 @@ fun PlayerScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             // Controls
+            // Row
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = { onSkip(false) }) {
-                    Icon(Icons.Default.SkipPrevious, contentDescription = "Previous")
+                    Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous")
                 }
 
                 Button(
@@ -296,14 +318,14 @@ fun PlayerScreen(
                         )
                     } else {
                         Icon(
-                            if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                             contentDescription = "Play/Pause"
                         )
                     }
                 }
 
                 IconButton(onClick = { onSkip(true) }) {
-                    Icon(Icons.Default.SkipNext, contentDescription = "Next")
+                    Icon(Icons.Filled.SkipNext, contentDescription = "Next")
                 }
             }
             
