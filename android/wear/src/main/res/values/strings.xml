@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Guzel Radio</string>
+    <string name="category_all">All</string>
+    <string name="category_most_played">Most Played</string>
+    <string name="category_pop">Pop</string>
+    <string name="category_classical">Classical</string>
+    <string name="category_news">News</string>
+    <string name="category_arabesk">Arabesk</string>
+    <string name="category_international">International</string>
+    <string name="category_broadcast">Broadcast</string>
+    <string name="category_comedy">Comedy</string>
+    <string name="notification_channel_id">guzel_radio_playback</string>
+    <string name="notification_channel_name">Radio Playback</string>
+    <string name="notification_channel_desc">Shows currently playing radio station</string>
+    <string name="media_root_id">root</string>
+    <string name="now_playing">Now Playing</string>
+    <string name="add_to_favorites">Add to favorites</string>
+    <string name="remove_from_favorites">Remove from favorites</string>
+    <string name="load_more">Load More</string>
+    <string name="no_stations">No stations found</string>
+    <string name="favorites">Favorites</string>
+</resources>

@@ -16,3 +16,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "GuzelRadio"
 include(":app")
+include(":wear")
+include(":core")
