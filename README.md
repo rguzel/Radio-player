@@ -14,6 +14,18 @@ A sleek, dark-themed internet radio player with 50,000+ stations worldwide, mood
 - **Media Session API** — lock screen / Android Auto controls: play, pause, next, previous track
 - **Animated player bar** — fixed footer with live signal indicator, bitrate, codec, and buffering state
 
+## 📱 Android App
+
+Guzel Radio is also available as a native Android application with premium features:
+
+- **Download APK**: [Latest Release (guzel-radio.apk)](https://github.com/rguzel/Radio-player/releases/latest)
+- **Features**: 
+    - **Android Auto** support with Spotify-like "Now Playing" UI.
+    - **Live RDS/Metadata** (Artist - Song Title) support.
+    - **First-run Wizard** to select your preferred country.
+    - **Edge-to-Edge** immersive dark-mode UI.
+    - **Nano Banana** custom icon.
+
 ## Tech Stack
 
 | Layer | Library |
