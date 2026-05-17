@@ -26,6 +26,31 @@ Guzel Radio is also available as a native Android application with premium featu
     - **Edge-to-Edge** immersive dark-mode UI.
     - **Nano Banana** custom icon.
 
+## ⌚ Wear OS App (Samsung Galaxy Watch & more)
+
+Experience Guzel Radio directly on your wrist with a standalone Wear OS application.
+
+- **Download APK**: [Latest Release (guzel-radio-wear.apk)](https://github.com/rguzel/Radio-player/releases/latest)
+- **Standalone Streaming**: Play radio directly from your watch over Wi-Fi or LTE.
+- **Rotating Bezel Support**: Adjust volume naturally using the physical bezel on Galaxy Watch Classic models.
+- **Media Controls**: Full control over playback and station switching.
+
+### **How to Install on Wear OS**
+
+Since smartwatches lack USB ports, use "Sideloading" via Wi-Fi:
+
+1.  **Enable Developer Mode**: On your watch, go to `Settings > About Watch > Software Info` and tap `Software Version` 7 times.
+2.  **Enable Wireless Debugging**: In `Settings > Developer Options`, turn on `ADB Debugging` and `Wireless Debugging`.
+3.  **Install via Phone (Easiest)**:
+    *   Install the **Bugjaeger** app on your Android phone.
+    *   Connect to your watch's IP address (found in Wireless Debugging settings).
+    *   Select `guzel-radio-wear.apk` and tap Install.
+4.  **Install via PC**:
+    ```bash
+    adb connect [WATCH_IP]
+    adb install guzel-radio-wear.apk
+    ```
+
 ## Tech Stack
 
 | Layer | Library |
