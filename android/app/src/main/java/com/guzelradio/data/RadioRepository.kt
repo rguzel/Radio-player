@@ -14,6 +14,7 @@ class RadioRepository private constructor(context: Context) {
         private const val HEALTH_BASE = "https://radio.recepguzel.com/"
         private const val PREFS_NAME = "guzel_radio_prefs"
         private const val PREFS_KEY_FAVORITES = "favorites"
+        private const val PREFS_KEY_COUNTRY = "selected_country"
 
         @Volatile
         private var INSTANCE: RadioRepository? = null
@@ -44,16 +45,16 @@ class RadioRepository private constructor(context: Context) {
      * @param category the selected category
      * @param offset pagination offset
      */
-    suspend fun fetchStations(category: Category, offset: Int = 0, query: String? = null): List<Station> {
+    suspend fun fetchStations(category: Category, offset: Int = 0, query: String? = null, country: String = "Türkiye"): List<Station> {
         return try {
             val stations: List<Station> = when {
-                !query.isNullOrBlank() -> radioBrowserApi.searchStationsByName(name = query, offset = offset)
+                !query.isNullOrBlank() -> radioBrowserApi.searchStationsByName(name = query, country = country, offset = offset)
                 category == Category.FAVORITES -> fetchFavoriteStations()
-                category == Category.ALL -> radioBrowserApi.getStationsByCountry(offset = offset)
+                category == Category.ALL -> radioBrowserApi.getStationsByCountry(country = country, offset = offset)
                 category == Category.MOST_PLAYED -> fetchMostPlayed()
                 else -> {
                     val tag = category.tag ?: return emptyList()
-                    radioBrowserApi.searchStations(tag = tag, offset = offset)
+                    radioBrowserApi.searchStations(tag = tag, country = country, offset = offset)
                 }
             }
 
@@ -140,6 +141,29 @@ class RadioRepository private constructor(context: Context) {
             mergeHealth(stations)
         } catch (e: Exception) {
             Log.e(TAG, "fetchFavoriteStations failed", e)
+            emptyList()
+        }
+    }
+
+    // ── Country Management ────────────────────────────────────────────────────
+
+    fun getSelectedCountry(): String {
+        return prefs.getString(PREFS_KEY_COUNTRY, "Türkiye") ?: "Türkiye"
+    }
+
+    fun setSelectedCountry(countryName: String) {
+        prefs.edit().putString(PREFS_KEY_COUNTRY, countryName).apply()
+    }
+
+    fun isFirstRun(): Boolean {
+        return !prefs.contains(PREFS_KEY_COUNTRY)
+    }
+
+    suspend fun fetchCountries(): List<Country> {
+        return try {
+            radioBrowserApi.getCountries()
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchCountries failed", e)
             emptyList()
         }
     }

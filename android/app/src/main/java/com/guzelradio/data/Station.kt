@@ -49,6 +49,12 @@ data class TopStationEntry(
     @SerializedName("failures") val failures: Int?
 )
 
+data class Country(
+    @SerializedName("name") val name: String,
+    @SerializedName("iso_3166_1") val code: String,
+    @SerializedName("stationcount") val stationCount: Int
+)
+
 enum class Category(val label: String, val tag: String?) {
     ALL("All", null),
     FAVORITES("Favorites", null),

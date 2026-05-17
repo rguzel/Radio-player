@@ -104,6 +104,7 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
                 val placeholderUri = "android.resource://${packageName}/drawable/ic_placeholder_radio"
                 val iconUri = currentStation?.favicon?.takeIf { it.isNotBlank() } ?: placeholderUri
 
+                metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID, currentUuid ?: "")
                 metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_TITLE, displayTitle)
                 metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_ARTIST, displayArtist)
                 metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_ALBUM, "Guzel Radio")
@@ -314,6 +315,7 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
 
         // Update metadata with station info as primary
         val metadata = MediaMetadataCompat.Builder()
+            .putString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID, uuid ?: "")
             .putString(MediaMetadataCompat.METADATA_KEY_TITLE, name ?: "Guzel Radio")
             .putString(MediaMetadataCompat.METADATA_KEY_ARTIST, "Live Radio")
             .putString(MediaMetadataCompat.METADATA_KEY_ALBUM, "Guzel Radio")

@@ -11,6 +11,7 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.guzelradio.data.Category
+import com.guzelradio.data.Country
 import com.guzelradio.data.RadioRepository
 import com.guzelradio.data.Station
 import com.guzelradio.service.RadioPlaybackService
@@ -38,6 +39,15 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
 
     private val _selectedCategory = MutableStateFlow(Category.ALL)
     val selectedCategory: StateFlow<Category> = _selectedCategory.asStateFlow()
+
+    private val _selectedCountry = MutableStateFlow("Türkiye")
+    val selectedCountry: StateFlow<String> = _selectedCountry.asStateFlow()
+
+    private val _countries = MutableStateFlow<List<Country>>(emptyList())
+    val countries: StateFlow<List<Country>> = _countries.asStateFlow()
+
+    private val _showWizard = MutableStateFlow(false)
+    val showWizard: StateFlow<Boolean> = _showWizard.asStateFlow()
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -97,7 +107,24 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
             }
             val title = metadata.getString(MediaMetadataCompat.METADATA_KEY_TITLE)
             val artist = metadata.getString(MediaMetadataCompat.METADATA_KEY_ARTIST)
+            val uuid = metadata.getString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID)
+            val iconUri = metadata.getString(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON_URI)
+            val stationName = metadata.getString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE)
             
+            // If current station state is outdated (e.g. after a skip)
+            if (!uuid.isNullOrBlank() && uuid != _currentStation.value?.uuid) {
+                _currentStation.value = Station(
+                    uuid = uuid,
+                    name = stationName ?: title ?: "Unknown",
+                    favicon = iconUri ?: "",
+                    streamUrl = "", // Not needed for UI display
+                    codec = null,
+                    bitrate = null,
+                    country = null,
+                    tags = null
+                )
+            }
+
             if (!title.isNullOrBlank() && artist != "Live Radio") {
                 _nowPlaying.value = "$artist - $title"
             } else if (!title.isNullOrBlank()) {
@@ -134,10 +161,26 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
 
     init {
         loadFavorites()
-        loadStations(reset = true)
+        _selectedCountry.value = repository.getSelectedCountry()
+        _showWizard.value = repository.isFirstRun()
+        
+        viewModelScope.launch {
+            _countries.value = repository.fetchCountries()
+        }
+
+        if (!_showWizard.value) {
+            loadStations(reset = true)
+        }
     }
 
     // ── Data Loading ──────────────────────────────────────────────────────────
+
+    fun setCountry(countryName: String) {
+        repository.setSelectedCountry(countryName)
+        _selectedCountry.value = countryName
+        _showWizard.value = false
+        loadStations(reset = true)
+    }
 
     fun selectCategory(category: Category) {
         if (_selectedCategory.value == category) return
@@ -159,6 +202,7 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
     private fun loadStations(reset: Boolean) {
         val category = _selectedCategory.value
         val query = _searchQuery.value
+        val country = _selectedCountry.value
 
         if (reset) {
             currentOffset = 0
@@ -170,7 +214,12 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
             _isLoading.value = true
             _errorMessage.value = null
             try {
-                val newStations = repository.fetchStations(category, offset = currentOffset, query = query)
+                val newStations = repository.fetchStations(
+                    category = category, 
+                    offset = currentOffset, 
+                    query = query,
+                    country = country
+                )
                 val current = if (reset) newStations else _stations.value + newStations
                 _stations.value = current
                 currentOffset += newStations.size
