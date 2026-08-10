@@ -1,9 +1,15 @@
 package com.guzelradio.wear
 
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.media.AudioManager
-import android.net.Uri
 import android.os.Bundle
+import android.support.v4.media.MediaBrowserCompat
+import android.support.v4.media.MediaMetadataCompat
+import android.support.v4.media.session.MediaControllerCompat
+import android.support.v4.media.session.PlaybackStateCompat
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.focusable
@@ -44,10 +50,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.net.toUri
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
 import androidx.wear.compose.foundation.lazy.AutoCenteringParams
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.foundation.lazy.items
@@ -72,36 +74,49 @@ class MainActivity : ComponentActivity() {
     
     private lateinit var repository: RadioRepository
     private val stations = MutableStateFlow<List<Station>>(emptyList())
-    private var exoPlayer: ExoPlayer? = null
     private val currentStation = MutableStateFlow<Station?>(null)
     private val isPlaying = MutableStateFlow(false)
     private val isBuffering = MutableStateFlow(false)
     private val playerError = MutableStateFlow<String?>(null)
 
+    private var mediaBrowser: MediaBrowserCompat? = null
+    private var mediaController: MediaControllerCompat? = null
+
+    private val connectionCallback = object : MediaBrowserCompat.ConnectionCallback() {
+        override fun onConnected() {
+            val token = mediaBrowser?.sessionToken ?: return
+            mediaController = MediaControllerCompat(this@MainActivity, token)
+            mediaController?.registerCallback(controllerCallback)
+            syncState()
+        }
+    }
+
+    private val controllerCallback = object : MediaControllerCompat.Callback() {
+        override fun onPlaybackStateChanged(state: PlaybackStateCompat?) { syncState() }
+        override fun onMetadataChanged(metadata: MediaMetadataCompat?) { syncState() }
+    }
+
+    private fun syncState() {
+        val state = mediaController?.playbackState?.state ?: PlaybackStateCompat.STATE_NONE
+        isPlaying.value = state == PlaybackStateCompat.STATE_PLAYING
+        isBuffering.value = state == PlaybackStateCompat.STATE_BUFFERING
+        // For current station name/id we'd read from metadata
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         repository = RadioRepository.getInstance(this)
         
-        exoPlayer = ExoPlayer.Builder(this).build().apply {
-            addListener(object : Player.Listener {
-                override fun onIsPlayingChanged(playing: Boolean) {
-                    this@MainActivity.isPlaying.value = playing
-                }
-                override fun onPlaybackStateChanged(state: Int) {
-                    this@MainActivity.isBuffering.value = state == Player.STATE_BUFFERING
-                }
-                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                    stop()
-                    this@MainActivity.isPlaying.value = false
-                    this@MainActivity.isBuffering.value = false
-                    this@MainActivity.playerError.value = "Station Offline"
-                }
-            })
-        }
+        mediaBrowser = MediaBrowserCompat(
+            this,
+            ComponentName(this, WearPlaybackService::class.java),
+            connectionCallback,
+            null
+        )
+        mediaBrowser?.connect()
         
         CoroutineScope(Dispatchers.IO).launch {
-            val list = repository.fetchStations(Category.ALL)
-            stations.value = list
+            stations.value = repository.fetchStations(Category.ALL)
         }
 
         setContent {
@@ -118,20 +133,18 @@ class MainActivity : ComponentActivity() {
                     isPlaying = playing,
                     isBuffering = buffering,
                     errorMessage = error,
-                    onPlay = { station -> 
-                        playerError.value = null
-                        playStation(station) 
-                    },
+                    onPlay = { playStation(it) },
                     onTogglePlay = {
-                        if (playing) exoPlayer?.pause() else exoPlayer?.play()
+                        if (playing) mediaController?.transportControls?.pause() 
+                        else mediaController?.transportControls?.play()
                     },
                     onSkip = { forward ->
-                        playerError.value = null
                         val list = stationList
-                        if (list.isEmpty()) return@WearApp
-                        val index = list.indexOfFirst { it.uuid == current?.uuid }
-                        val nextIndex = if (forward) (index + 1) % list.size else (index - 1 + list.size) % list.size
-                        playStation(list[nextIndex])
+                        if (list.isNotEmpty()) {
+                            val index = list.indexOfFirst { it.uuid == current?.uuid }
+                            val next = if (forward) (index + 1) % list.size else (index - 1 + list.size) % list.size
+                            playStation(list[next])
+                        }
                     }
                 )
             }
@@ -140,17 +153,15 @@ class MainActivity : ComponentActivity() {
 
     private fun playStation(station: Station) {
         currentStation.value = station
-        exoPlayer?.let { player ->
-            player.stop()
-            player.clearMediaItems()
-            player.setMediaItem(MediaItem.fromUri(station.streamUrl.toUri()))
-            player.prepare()
-            player.play()
+        playerError.value = null
+        val intent = Intent(this, WearPlaybackService::class.java).apply {
+            putExtra(WearPlaybackService.EXTRA_STREAM_URL, station.streamUrl)
         }
+        startForegroundService(intent)
     }
 
     override fun onDestroy() {
-        exoPlayer?.release()
+        mediaBrowser?.disconnect()
         super.onDestroy()
     }
 }
@@ -169,7 +180,6 @@ fun WearApp(
     val listState = rememberScalingLazyListState()
     var showPlayer by remember { mutableStateOf(false) }
 
-    // If a station starts playing, show player auto (optional, maybe better to stay on list)
     LaunchedEffect(currentStation) {
         if (currentStation != null) showPlayer = true
     }
@@ -189,19 +199,11 @@ fun WearApp(
                         color = Color(0xFFF59E0B)
                     )
                 }
-
                 if (errorMessage != null) {
                     item {
-                        Text(
-                            text = errorMessage,
-                            color = Color.Red,
-                            style = MaterialTheme.typography.caption2,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-                        )
+                        Text(text = errorMessage, color = Color.Red, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
                     }
                 }
-                
                 items(stationList) { station ->
                     Chip(
                         onClick = { onPlay(station) },
@@ -238,116 +240,53 @@ fun PlayerScreen(
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val focusRequester = remember { FocusRequester() }
     
-    var volume by remember { 
-        mutableIntStateOf(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC))
-    }
+    var volume by remember { mutableIntStateOf(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)) }
     val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
 
-    // Handle Rotary (Bezel) for Volume
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .onRotaryScrollEvent {
-                val delta = if (it.verticalScrollPixels > 0) 1 else -1
-                val newVol = (volume + delta).coerceIn(0, maxVolume)
-                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
-                volume = newVol
-                true
-            }
-            .focusRequester(focusRequester)
-            .focusable()
+        modifier = Modifier.fillMaxSize().onRotaryScrollEvent {
+            val delta = if (it.verticalScrollPixels > 0) 1 else -1
+            val newVol = (volume + delta).coerceIn(0, maxVolume)
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
+            volume = newVol
+            true
+        }.focusRequester(focusRequester).focusable()
     ) {
-        LaunchedEffect(Unit) {
-            focusRequester.requestFocus()
-        }
+        LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
         Column(
             modifier = Modifier.fillMaxSize().padding(12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Text(
-                text = station?.name ?: "No Station",
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center,
-                style = MaterialTheme.typography.body1,
-                fontWeight = FontWeight.Bold
-            )
-            
+            Text(text = station?.name ?: "No Station", maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, style = MaterialTheme.typography.body1, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(4.dp))
-            
-            Text(
-                text = if (isBuffering) "Buffering..." else if (isPlaying) "Live" else "Paused",
-                style = MaterialTheme.typography.caption2,
-                color = Color(0xFFF59E0B)
-            )
-
+            Text(text = if (isBuffering) "Buffering..." else if (isPlaying) "Live" else "Paused", style = MaterialTheme.typography.caption2, color = Color(0xFFF59E0B))
             Spacer(modifier = Modifier.height(12.dp))
-
-            // Volume indicator
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(12.dp))
                 Spacer(modifier = Modifier.width(4.dp))
                 Text("${(volume * 100 / maxVolume)}%", style = MaterialTheme.typography.caption3)
             }
-
             Spacer(modifier = Modifier.height(8.dp))
-
-            // Controls
-            // Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = { onSkip(false) }) {
-                    Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous")
-                }
-
-                Button(
-                    onClick = onTogglePlay,
-                    modifier = Modifier.size(ButtonDefaults.LargeButtonSize),
-                    colors = ButtonDefaults.primaryButtonColors()
-                ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { onSkip(false) }) { Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous") }
+                Button(onClick = onTogglePlay, modifier = Modifier.size(ButtonDefaults.LargeButtonSize), colors = ButtonDefaults.primaryButtonColors()) {
                     if (isBuffering) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
-                            indicatorColor = Color.Black,
-                            trackColor = Color.Transparent
-                        )
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), indicatorColor = Color.Black, trackColor = Color.Transparent)
                     } else {
-                        Icon(
-                            if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                            contentDescription = "Play/Pause"
-                        )
+                        Icon(if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow, contentDescription = "Play/Pause")
                     }
                 }
-
-                IconButton(onClick = { onSkip(true) }) {
-                    Icon(Icons.Filled.SkipNext, contentDescription = "Next")
-                }
+                IconButton(onClick = { onSkip(true) }) { Icon(Icons.Filled.SkipNext, contentDescription = "Next") }
             }
-            
             Spacer(modifier = Modifier.height(8.dp))
-            
-            Chip(
-                onClick = onBack,
-                label = { Text("List", fontSize = 10.sp) },
-                modifier = Modifier.height(24.dp).width(60.dp),
-                colors = ChipDefaults.secondaryChipColors()
-            )
+            Chip(onClick = onBack, label = { Text("List", fontSize = 10.sp) }, modifier = Modifier.height(24.dp).width(60.dp), colors = ChipDefaults.secondaryChipColors())
         }
     }
 }
 
 @Composable
 fun IconButton(onClick: () -> Unit, content: @Composable () -> Unit) {
-    Button(
-        onClick = onClick,
-        modifier = Modifier.size(ButtonDefaults.SmallButtonSize),
-        colors = ButtonDefaults.secondaryButtonColors()
-    ) {
-        content()
-    }
+    Button(onClick = onClick, modifier = Modifier.size(ButtonDefaults.SmallButtonSize), colors = ButtonDefaults.secondaryButtonColors()) { content() }
 }
