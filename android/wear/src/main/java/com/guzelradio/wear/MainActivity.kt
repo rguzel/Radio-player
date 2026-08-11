@@ -9,35 +9,16 @@ import android.support.v4.media.MediaBrowserCompat
 import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaControllerCompat
 import android.support.v4.media.session.PlaybackStateCompat
-import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.activity.OnBackPressedCallback
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -54,14 +35,7 @@ import androidx.wear.compose.foundation.lazy.AutoCenteringParams
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
 import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
-import androidx.wear.compose.material.Button
-import androidx.wear.compose.material.ButtonDefaults
-import androidx.wear.compose.material.Chip
-import androidx.wear.compose.material.ChipDefaults
-import androidx.wear.compose.material.CircularProgressIndicator
-import androidx.wear.compose.material.Icon
-import androidx.wear.compose.material.MaterialTheme
-import androidx.wear.compose.material.Text
+import androidx.wear.compose.material.*
 import com.guzelradio.data.Category
 import com.guzelradio.data.RadioRepository
 import com.guzelradio.data.Station
@@ -78,6 +52,7 @@ class MainActivity : ComponentActivity() {
     private val isPlaying = MutableStateFlow(false)
     private val isBuffering = MutableStateFlow(false)
     private val playerError = MutableStateFlow<String?>(null)
+    private val showPlayerView = MutableStateFlow(false)
 
     private var mediaBrowser: MediaBrowserCompat? = null
     private var mediaController: MediaControllerCompat? = null
@@ -100,7 +75,6 @@ class MainActivity : ComponentActivity() {
         val state = mediaController?.playbackState?.state ?: PlaybackStateCompat.STATE_NONE
         isPlaying.value = state == PlaybackStateCompat.STATE_PLAYING
         isBuffering.value = state == PlaybackStateCompat.STATE_BUFFERING
-        // For current station name/id we'd read from metadata
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -125,6 +99,19 @@ class MainActivity : ComponentActivity() {
             val playing by isPlaying.collectAsState()
             val buffering by isBuffering.collectAsState()
             val error by playerError.collectAsState()
+            val showPlayer by showPlayerView.collectAsState()
+
+            // Handle Back Button
+            val backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+            DisposableEffect(showPlayer, current) {
+                val callback = object : OnBackPressedCallback(showPlayer && current != null) {
+                    override fun handleOnBackPressed() {
+                        showPlayerView.value = false
+                    }
+                }
+                backDispatcher?.addCallback(callback)
+                onDispose { callback.remove() }
+            }
 
             MaterialTheme {
                 WearApp(
@@ -133,7 +120,12 @@ class MainActivity : ComponentActivity() {
                     isPlaying = playing,
                     isBuffering = buffering,
                     errorMessage = error,
-                    onPlay = { playStation(it) },
+                    showPlayer = showPlayer,
+                    onShowPlayer = { showPlayerView.value = it },
+                    onPlay = { 
+                        playStation(it)
+                        showPlayerView.value = true
+                    },
                     onTogglePlay = {
                         if (playing) mediaController?.transportControls?.pause() 
                         else mediaController?.transportControls?.play()
@@ -173,31 +165,53 @@ fun WearApp(
     isPlaying: Boolean,
     isBuffering: Boolean,
     errorMessage: String?,
+    showPlayer: Boolean,
+    onShowPlayer: (Boolean) -> Unit,
     onPlay: (Station) -> Unit,
     onTogglePlay: () -> Unit,
     onSkip: (Boolean) -> Unit
 ) {
     val listState = rememberScalingLazyListState()
-    var showPlayer by remember { mutableStateOf(false) }
-
-    LaunchedEffect(currentStation) {
-        if (currentStation != null) showPlayer = true
-    }
+    val focusRequester = remember { FocusRequester() }
+    val coroutineScope = rememberCoroutineScope()
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (!showPlayer) {
             ScalingLazyColumn(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .onRotaryScrollEvent {
+                        coroutineScope.launch {
+                            listState.scrollBy(it.verticalScrollPixels)
+                        }
+                        true
+                    }
+                    .focusRequester(focusRequester)
+                    .focusable(),
                 state = listState,
                 autoCentering = AutoCenteringParams(itemIndex = 0)
             ) {
                 item {
-                    Text(
-                        text = "Guzel Radio",
-                        modifier = Modifier.padding(bottom = 8.dp),
-                        style = MaterialTheme.typography.caption1,
-                        color = Color(0xFFF59E0B)
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Guzel Radio",
+                            style = MaterialTheme.typography.caption1,
+                            color = Color(0xFFF59E0B)
+                        )
+                        if (currentStation != null) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            IconButton(
+                                onClick = { onShowPlayer(true) },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(Icons.Default.PlayArrow, contentDescription = "Back to player", modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
                 }
                 if (errorMessage != null) {
                     item {
@@ -214,6 +228,9 @@ fun WearApp(
                     )
                 }
             }
+            LaunchedEffect(Unit) {
+                focusRequester.requestFocus()
+            }
         } else {
             PlayerScreen(
                 station = currentStation,
@@ -221,7 +238,7 @@ fun WearApp(
                 isBuffering = isBuffering,
                 onTogglePlay = onTogglePlay,
                 onSkip = onSkip,
-                onBack = { showPlayer = false }
+                onBack = { onShowPlayer(false) }
             )
         }
     }
@@ -287,6 +304,6 @@ fun PlayerScreen(
 }
 
 @Composable
-fun IconButton(onClick: () -> Unit, content: @Composable () -> Unit) {
-    Button(onClick = onClick, modifier = Modifier.size(ButtonDefaults.SmallButtonSize), colors = ButtonDefaults.secondaryButtonColors()) { content() }
+fun IconButton(onClick: () -> Unit, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Button(onClick = onClick, modifier = modifier.size(ButtonDefaults.SmallButtonSize), colors = ButtonDefaults.secondaryButtonColors()) { content() }
 }
