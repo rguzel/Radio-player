@@ -13,9 +13,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.runtime.*
@@ -44,6 +47,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
+// Color constants matching the theme (since shared core is not providing them)
+val BackgroundColor = Color(0xFF0F172A)
+val AccentColor = Color(0xFFF59E0B)
+val CardBgColor = Color(0xFF1E293B)
+val TextPrimary = Color(0xFFFFFFFF)
+val TextSecondary = Color(0xFFCBD5E1)
+
 class MainActivity : ComponentActivity() {
     
     private lateinit var repository: RadioRepository
@@ -53,6 +63,7 @@ class MainActivity : ComponentActivity() {
     private val isBuffering = MutableStateFlow(false)
     private val playerError = MutableStateFlow<String?>(null)
     private val showPlayerView = MutableStateFlow(false)
+    private val searchQuery = MutableStateFlow("")
 
     private var mediaBrowser: MediaBrowserCompat? = null
     private var mediaController: MediaControllerCompat? = null
@@ -89,9 +100,7 @@ class MainActivity : ComponentActivity() {
         )
         mediaBrowser?.connect()
         
-        CoroutineScope(Dispatchers.IO).launch {
-            stations.value = repository.fetchStations(Category.ALL)
-        }
+        loadStations()
 
         setContent {
             val stationList by stations.collectAsState()
@@ -100,13 +109,19 @@ class MainActivity : ComponentActivity() {
             val buffering by isBuffering.collectAsState()
             val error by playerError.collectAsState()
             val showPlayer by showPlayerView.collectAsState()
+            val query by searchQuery.collectAsState()
 
             // Handle Back Button
             val backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
-            DisposableEffect(showPlayer, current) {
-                val callback = object : OnBackPressedCallback(showPlayer && current != null) {
+            DisposableEffect(showPlayer, query, current) {
+                val callback = object : OnBackPressedCallback(showPlayer || query.isNotEmpty()) {
                     override fun handleOnBackPressed() {
-                        showPlayerView.value = false
+                        if (showPlayer) {
+                            showPlayerView.value = false
+                        } else if (query.isNotEmpty()) {
+                            searchQuery.value = ""
+                            loadStations()
+                        }
                     }
                 }
                 backDispatcher?.addCallback(callback)
@@ -121,7 +136,12 @@ class MainActivity : ComponentActivity() {
                     isBuffering = buffering,
                     errorMessage = error,
                     showPlayer = showPlayer,
-                    onShowPlayer = { showPlayerView.value = it },
+                    searchQuery = query,
+                    onSearch = { newQuery: String ->
+                        searchQuery.value = newQuery
+                        loadStations(newQuery)
+                    },
+                    onShowPlayer = { value: Boolean -> showPlayerView.value = value },
                     onPlay = { 
                         playStation(it)
                         showPlayerView.value = true
@@ -140,6 +160,13 @@ class MainActivity : ComponentActivity() {
                     }
                 )
             }
+        }
+    }
+
+    private fun loadStations(query: String = "") {
+        CoroutineScope(Dispatchers.IO).launch {
+            val country = repository.getSelectedCountry()
+            stations.value = repository.fetchStations(Category.ALL, query = query.takeIf { it.isNotEmpty() }, country = country)
         }
     }
 
@@ -166,6 +193,8 @@ fun WearApp(
     isBuffering: Boolean,
     errorMessage: String?,
     showPlayer: Boolean,
+    searchQuery: String,
+    onSearch: (String) -> Unit,
     onShowPlayer: (Boolean) -> Unit,
     onPlay: (Station) -> Unit,
     onTogglePlay: () -> Unit,
@@ -174,6 +203,7 @@ fun WearApp(
     val listState = rememberScalingLazyListState()
     val focusRequester = remember { FocusRequester() }
     val coroutineScope = rememberCoroutineScope()
+    var isInputMode by remember { mutableStateOf(false) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         if (!showPlayer) {
@@ -198,7 +228,7 @@ fun WearApp(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Guzel Radio",
+                            text = if (searchQuery.isNotEmpty()) "Result: $searchQuery" else "Guzel Radio",
                             style = MaterialTheme.typography.caption1,
                             color = Color(0xFFF59E0B)
                         )
@@ -213,6 +243,51 @@ fun WearApp(
                         }
                     }
                 }
+
+                item {
+                    if (isInputMode) {
+                        var text by remember { mutableStateOf("") }
+                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
+                            // On Wear OS, standard TextField is not common, we usually use 
+                            // a dedicated input screen or a simple custom input.
+                            // For simplicity, let's use a basic Chip that shows "Type search"
+                            // and when clicked we could use RemoteInput or just a simple toggle.
+                            // Since I can't easily add a new Activity for input here, 
+                            // I'll stick to a toggle for now but with proper Wear UI.
+                            
+                            BasicTextField(
+                                value = text,
+                                onValueChange = { newValue: String -> text = newValue },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(CardBgColor, RoundedCornerShape(8.dp))
+                                    .padding(8.dp),
+                                textStyle = MaterialTheme.typography.body1.copy(color = TextPrimary)
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                                Button(onClick = { isInputMode = false }, colors = ButtonDefaults.secondaryButtonColors(), modifier = Modifier.size(ButtonDefaults.SmallButtonSize)) {
+                                    Icon(Icons.Default.Close, contentDescription = "Cancel")
+                                }
+                                Button(onClick = { 
+                                    isInputMode = false
+                                    onSearch(text) 
+                                }, modifier = Modifier.size(ButtonDefaults.SmallButtonSize)) {
+                                    Icon(Icons.Default.Search, contentDescription = "Go")
+                                }
+                            }
+                        }
+                    } else {
+                        Chip(
+                            onClick = { isInputMode = true },
+                            label = { Text("Search Stations") },
+                            icon = { Icon(Icons.Default.Search, contentDescription = null) },
+                            colors = ChipDefaults.secondaryChipColors(),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp)
+                        )
+                    }
+                }
+
                 if (errorMessage != null) {
                     item {
                         Text(text = errorMessage, color = Color.Red, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
