@@ -34,7 +34,7 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
     private val _stations = MutableStateFlow<List<Station>>(emptyList())
     val stations: StateFlow<List<Station>> = _stations.asStateFlow()
 
-    private val _isLoading = MutableStateFlow(false)
+    private val _isLoading = MutableStateFlow(value = false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     private val _selectedCategory = MutableStateFlow(Category.ALL)
@@ -112,16 +112,16 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
             val stationName = metadata.getString(MediaMetadataCompat.METADATA_KEY_DISPLAY_TITLE)
             
             // If current station state is outdated (e.g. after a skip)
-            if (!uuid.isNullOrBlank() && uuid != _currentStation.value?.uuid) {
+            if (!uuid.isNullOrBlank() && (uuid != _currentStation.value?.uuid)) {
                 _currentStation.value = Station(
                     uuid = uuid,
-                    name = stationName ?: title ?: "Unknown",
+                    name = stationName ?: (title ?: "Unknown"),
                     favicon = iconUri ?: "",
                     streamUrl = "", // Not needed for UI display
                     codec = null,
                     bitrate = null,
                     country = null,
-                    tags = null
+                    tags = null,
                 )
             }
 

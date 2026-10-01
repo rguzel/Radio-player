@@ -9,10 +9,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import com.guzelradio.ui.StationListScreen
@@ -24,7 +21,7 @@ class MainActivity : ComponentActivity() {
     private val viewModel: StationViewModel by viewModels()
 
     private val requestNotificationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
             // Notification permission result — playback works regardless
         }
 
@@ -47,7 +44,7 @@ class MainActivity : ComponentActivity() {
             GuzelRadioTheme {
                 StationListScreen(
                     viewModel = viewModel,
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
                 )
             }
         }

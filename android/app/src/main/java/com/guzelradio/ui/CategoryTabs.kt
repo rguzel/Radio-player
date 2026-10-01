@@ -1,6 +1,5 @@
 package com.guzelradio.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
@@ -27,7 +26,7 @@ fun CategoryTabs(
     categories: List<Category>,
     selectedCategory: Category,
     onCategorySelected: (Category) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val scrollState = rememberScrollState()
     Row(

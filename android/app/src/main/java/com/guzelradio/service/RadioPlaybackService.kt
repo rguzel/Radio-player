@@ -16,6 +16,7 @@ import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.net.toUri
 import androidx.media.MediaBrowserServiceCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -66,7 +67,6 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
     // Currently loaded station
     private var currentStation: Station? = null
     private var currentUuid: String? = null
-    private var playStartTime: Long = 0L
     private var playReported = false
 
     override fun onCreate() {
@@ -81,7 +81,7 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
         val channel = NotificationChannel(
             CHANNEL_ID,
             "Radio Playback",
-            NotificationManager.IMPORTANCE_LOW
+            NotificationManager.IMPORTANCE_LOW,
         ).apply {
             description = "Shows currently playing radio station"
         }
@@ -91,8 +91,9 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
 
     private fun initExoPlayer() {
         exoPlayer = ExoPlayer.Builder(this).build()
-        exoPlayer.addListener(object : Player.Listener {
-            override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
+        exoPlayer.addListener(
+            object : Player.Listener {
+                override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
                 // This is called when stream metadata (ICY/RDS) changes
                 val title = mediaMetadata.title ?: mediaMetadata.displayTitle
                 val artist = mediaMetadata.artist
@@ -103,7 +104,7 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
                 val displayTitle = if (!title.isNullOrBlank()) title.toString() else currentStation?.name ?: "Unknown"
                 val displayArtist = if (!artist.isNullOrBlank()) artist.toString() else "Live Radio"
 
-                val placeholderUri = "android.resource://${packageName}/drawable/ic_placeholder_radio"
+                val placeholderUri = "android.resource://$packageName/drawable/ic_placeholder_radio"
                 val iconUri = currentStation?.favicon?.takeIf { it.isNotBlank() } ?: placeholderUri
 
                 metadataBuilder.putString(MediaMetadataCompat.METADATA_KEY_MEDIA_ID, currentUuid ?: "")
@@ -121,7 +122,7 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
 
             override fun onPlaybackStateChanged(state: Int) {
                 updatePlaybackState()
-                if (state == Player.STATE_READY && exoPlayer.playWhenReady) {
+                if (state == Player.STATE_READY && (exoPlayer.playWhenReady)) {
                     if (!playReported) {
                         playReported = true
                         currentUuid?.let { uuid ->
@@ -285,8 +286,8 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
                 val stationName = intent?.getStringExtra(EXTRA_STATION_NAME)
                 val uuid = intent?.getStringExtra(EXTRA_STATION_UUID)
                 val faviconUrl = intent?.getStringExtra(EXTRA_FAVICON_URL)
-                if (streamUrl != null) {
-                    playStream(streamUrl, stationName, uuid, faviconUrl)
+                streamUrl?.let {
+                    playStream(it, stationName, uuid, faviconUrl)
                 }
             }
         }
@@ -338,7 +339,7 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
 
         exoPlayer.stop()
         exoPlayer.clearMediaItems()
-        exoPlayer.setMediaItem(MediaItem.fromUri(Uri.parse(url)))
+        exoPlayer.setMediaItem(MediaItem.fromUri(url.toUri()))
         exoPlayer.prepare()
         exoPlayer.playWhenReady = true
 
@@ -395,19 +396,19 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
                     val stations = repository.fetchStations(category)
                     categoryStationCache[category] = stations
                     
-                    val placeholderUri = "android.resource://${packageName}/drawable/ic_placeholder_radio"
+                    val placeholderUri = "android.resource://$packageName/drawable/ic_placeholder_radio"
                     
-                    val items = stations.map { station ->
+                    val items = stations.asSequence().map { station ->
                         val iconUri = station.favicon?.takeIf { it.isNotBlank() } ?: placeholderUri
                         val desc = MediaDescriptionCompat.Builder()
                             .setMediaId("$STATION_PREFIX${station.uuid}")
                             .setTitle(station.name)
                             .setSubtitle(station.displayCodec)
-                            .setMediaUri(Uri.parse(station.streamUrl))
-                            .setIconUri(Uri.parse(iconUri))
+                            .setMediaUri(station.streamUrl.toUri())
+                            .setIconUri(iconUri.toUri())
                             .build()
                         MediaBrowserCompat.MediaItem(desc, MediaBrowserCompat.MediaItem.FLAG_PLAYABLE)
-                    }
+                    }.toList()
                     result.sendResult(items)
                 }
             }
@@ -441,7 +442,7 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
             if (mediaId.startsWith(STATION_PREFIX)) {
                 val uuid = mediaId.removePrefix(STATION_PREFIX)
                 // Find station in cache
-                val station = categoryStationCache.values.flatten().firstOrNull { it.uuid == uuid }
+                val station = categoryStationCache.values.asSequence().flatten().firstOrNull { it.uuid == uuid }
                 if (station != null) {
                     playStation(station)
                 }
@@ -456,11 +457,11 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
         }
 
         override fun onSkipToNext() {
-            skipToStation(true)
+            skipToStation(forward = true)
         }
 
         override fun onSkipToPrevious() {
-            skipToStation(false)
+            skipToStation(forward = false)
         }
 
         private fun skipToStation(forward: Boolean) {
