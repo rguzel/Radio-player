@@ -14,3 +14,8 @@
 .cxx
 local.properties
 *.hprof
+
+# Signing (never commit)
+*.jks
+*.keystore
+keystore.properties
