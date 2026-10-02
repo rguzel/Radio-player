@@ -564,5 +564,5 @@ private fun String.foldForSearch(): String {
         .replace('ğ', 'g')
         .replace('ş', 's')
     return Normalizer.normalize(turkishFolded, Normalizer.Form.NFD)
-        .replace(Regex("\p{Mn}+"), "")
+        .replace(Regex("""\p{Mn}+"""), "")
 }
