@@ -8,9 +8,9 @@ Guzel Radio
 
 ## Short description (80 char max)
 ```
-Stream live radio from Türkiye and worldwide — Android Auto, favorites, free.
+Stream live radio from around the world — Android Auto, favorites, free.
 ```
-(78 chars)
+(75 chars)
 
 ## Full description (4000 char max)
 
@@ -23,10 +23,9 @@ getting in the way of the music.
 
 FEATURES
 
-• Thousands of live stations from Türkiye and every other country, powered by
+• Thousands of live stations from any country, powered by
   the open RadioBrowser directory
-• Browse by category — Pop, Classical, News, Arabesk, Comedy, International,
-  and more
+• Browse by category — Pop, Classical, News, Comedy, International, and more
 • Search stations and countries by name
 • Save your favorite stations for one-tap access
 • Live station health indicators, so you can see which streams are reliably
@@ -42,8 +41,8 @@ NO ACCOUNT. NO TRACKING. NO CLUTTER.
 Guzel Radio doesn't ask for your email, your location, or your contacts. Pick
 a station and listen — that's it.
 
-Whether you're craving Turkish pop, classical music, talk radio, or a station
-from the other side of the world, Guzel Radio puts it a tap away.
+Whether you're craving pop, classical music, talk radio, or a station from
+the other side of the world, Guzel Radio puts it a tap away.
 
 Have a station suggestion or found a dead stream? Reach out at
 rguzel@gmail.com.
@@ -55,8 +54,8 @@ features)
 Music & Audio
 
 ## Tags / suggested keywords
-radio, internet radio, live radio, Turkish radio, Türkiye, streaming, Android
-Auto, FM radio, online radio
+radio, internet radio, live radio, world radio, streaming, Android Auto, FM
+radio, online radio
 
 ## Contact email
 rguzel@gmail.com
