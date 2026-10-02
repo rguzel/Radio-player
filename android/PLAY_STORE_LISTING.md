@@ -45,7 +45,7 @@ Whether you're craving pop, classical music, talk radio, or a station from
 the other side of the world, Guzel Radio puts it a tap away.
 
 Have a station suggestion or found a dead stream? Reach out at
-rguzel@gmail.com.
+rguzel444@gmail.com.
 ```
 (~1,350 chars — well within the 4000 limit, room to expand with future
 features)
@@ -58,7 +58,7 @@ radio, internet radio, live radio, world radio, streaming, Android Auto, FM
 radio, online radio
 
 ## Contact email
-rguzel@gmail.com
+rguzel444@gmail.com
 
 ## Privacy policy URL
 https://radio.recepguzel.com/privacy.html
