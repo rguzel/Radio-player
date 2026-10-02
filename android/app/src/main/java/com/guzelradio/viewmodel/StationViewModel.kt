@@ -70,6 +70,11 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    // Transient messages from the playback service, e.g. "skip has nothing
+    // to skip to because there are no favorites saved."
+    private val _playbackMessage = MutableStateFlow<String?>(null)
+    val playbackMessage: StateFlow<String?> = _playbackMessage.asStateFlow()
+
     // Pagination
     private var currentOffset = 0
     private val pageSize = 100
@@ -98,6 +103,7 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
     private val mediaControllerCallback = object : MediaControllerCompat.Callback() {
         override fun onPlaybackStateChanged(state: PlaybackStateCompat?) {
             syncPlaybackState()
+            _playbackMessage.value = state?.errorMessage?.toString()
         }
 
         override fun onMetadataChanged(metadata: MediaMetadataCompat?) {
@@ -246,10 +252,18 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
             putExtra(RadioPlaybackService.EXTRA_STATION_NAME, station.name)
             putExtra(RadioPlaybackService.EXTRA_STATION_UUID, station.uuid)
             putExtra(RadioPlaybackService.EXTRA_FAVICON_URL, station.favicon)
+            // Whatever list is on screen right now, so skip next/previous can
+            // move within it instead of only ever cycling favorites.
+            putExtra(RadioPlaybackService.EXTRA_QUEUE, ArrayList(_stations.value))
         }
         ctx.startForegroundService(intent)
         _isPlaying.value = true
         _isBuffering.value = true
+    }
+
+    /** Called by the UI once it has shown [playbackMessage] (e.g. in a Snackbar). */
+    fun dismissPlaybackMessage() {
+        _playbackMessage.value = null
     }
 
     fun togglePlayPause() {

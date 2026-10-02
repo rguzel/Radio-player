@@ -106,6 +106,7 @@ fun StationListScreen(
     val favorites by viewModel.favorites.collectAsState()
     val hasMore by viewModel.hasMore.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
+    val playbackMessage by viewModel.playbackMessage.collectAsState()
 
     val gridState = rememberLazyGridState()
     var isSearchExpanded by remember { mutableStateOf(false) }
@@ -238,6 +239,21 @@ fun StationListScreen(
             Text(
                 text = errorMessage ?: "",
                 color = HealthRed,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+        }
+
+        // Transient playback message, e.g. "no favorites to skip between" —
+        // auto-dismisses after a few seconds like a lightweight Snackbar.
+        if (playbackMessage != null) {
+            LaunchedEffect(playbackMessage) {
+                kotlinx.coroutines.delay(4000)
+                viewModel.dismissPlaybackMessage()
+            }
+            Text(
+                text = playbackMessage ?: "",
+                color = AccentColor,
                 fontSize = 13.sp,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
             )

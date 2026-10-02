@@ -55,6 +55,11 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
         const val EXTRA_STATION_NAME = "station_name"
         const val EXTRA_STATION_UUID = "station_uuid"
         const val EXTRA_FAVICON_URL = "favicon_url"
+
+        // The list the phone app is currently showing (e.g. the station grid
+        // for whatever category/search is on screen), so skip next/previous
+        // can move within it instead of only ever cycling favorites.
+        const val EXTRA_QUEUE = "queue_stations"
     }
 
     private lateinit var mediaSession: MediaSessionCompat
@@ -72,8 +77,13 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
     private var playReported = false
 
     // The list the current station was picked from (e.g. the Android Auto
-    // category folder being browsed), so skip next/previous moves within it.
+    // category folder being browsed, or whatever the phone app is showing),
+    // so skip next/previous moves within it.
     private var currentQueue: List<Station> = emptyList()
+
+    // Set when skip next/previous has nowhere to go (no queue, no favorites),
+    // surfaced to the UI via the media session's playback state.
+    private var skipUnavailableMessage: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -212,9 +222,13 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
             exoPlayer.playbackState == Player.STATE_IDLE -> PlaybackStateCompat.STATE_STOPPED
             else -> PlaybackStateCompat.STATE_PAUSED
         }
-        mediaSession.setPlaybackState(
-            stateBuilder.setState(state, 0, 1.0f).build()
-        )
+        stateBuilder.setState(state, 0, 1.0f)
+        if (skipUnavailableMessage != null) {
+            stateBuilder.setErrorMessage(PlaybackStateCompat.ERROR_CODE_APP_ERROR, skipUnavailableMessage)
+        } else {
+            stateBuilder.setErrorMessage(0, null)
+        }
+        mediaSession.setPlaybackState(stateBuilder.build())
     }
 
     private fun updateNotification() {
@@ -306,11 +320,14 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
                 val stationName = intent?.getStringExtra(EXTRA_STATION_NAME)
                 val uuid = intent?.getStringExtra(EXTRA_STATION_UUID)
                 val faviconUrl = intent?.getStringExtra(EXTRA_FAVICON_URL)
+                @Suppress("UNCHECKED_CAST", "DEPRECATION")
+                val queue = intent?.getSerializableExtra(EXTRA_QUEUE) as? ArrayList<Station>
                 streamUrl?.let {
-                    // Started directly from the phone app, not from an Android
-                    // Auto browse selection — no queue context to skip within
-                    // until skipToStation() falls back to favorites.
-                    currentQueue = emptyList()
+                    // The phone app passes the list it's currently showing (grid
+                    // for the active category/search), so skip next/previous can
+                    // move within it. Falls back to favorites in skipToStation()
+                    // if no queue was supplied or it doesn't contain this station.
+                    currentQueue = queue ?: emptyList()
                     playStream(it, stationName, uuid, faviconUrl)
                 }
             }
@@ -330,7 +347,8 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
     ) {
         currentUuid = uuid
         playReported = false
-        
+        skipUnavailableMessage = null
+
         // Store current station info for metadata fallbacks
         currentStation = name?.let { n -> 
             Station(
@@ -511,7 +529,11 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
             // app directly, outside of any Android Auto browsing context).
             serviceScope.launch {
                 val favorites = repository.fetchFavoriteStations()
-                if (favorites.isEmpty()) return@launch
+                if (favorites.isEmpty()) {
+                    skipUnavailableMessage = "Add favorites to skip between stations"
+                    updatePlaybackState()
+                    return@launch
+                }
 
                 val currentIndex = favorites.indexOfFirst { it.uuid == currentUuid }
                 val nextIndex = if (currentIndex == -1) {

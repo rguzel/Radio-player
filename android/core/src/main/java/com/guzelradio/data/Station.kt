@@ -12,7 +12,7 @@ data class Station(
     @SerializedName("country") val country: String?,
     @SerializedName("tags") val tags: String?,
     var healthScore: Float? = null
-) {
+) : java.io.Serializable {
     val displayCodec: String
         get() {
             val c = codec?.uppercase()?.takeIf { it.isNotBlank() } ?: "?"
