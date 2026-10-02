@@ -1,5 +1,7 @@
 package com.guzelradio.ui
 
+import java.text.Normalizer
+import java.util.Locale
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -391,7 +393,8 @@ fun CountrySelectionDialog(
                 )
 
                 val filteredCountries = remember(countries, filterQuery) {
-                    countries.filter { it.name.contains(filterQuery, ignoreCase = true) }
+                    val normalizedQuery = filterQuery.foldForSearch()
+                    countries.filter { it.name.foldForSearch().contains(normalizedQuery) }
                 }
 
                 if (countries.isEmpty()) {
@@ -546,4 +549,20 @@ fun HealthDot(
                 .border(1.dp, CardBgColor, CircleShape)
         )
     }
+}
+
+/**
+ * Lowercases and strips diacritics so search is accent-insensitive, e.g.
+ * typing "tur" matches "Türkiye" and "sao" matches "São Paulo".
+ *
+ * Turkish letters (ı, ğ, ş) don't have a canonical Unicode decomposition,
+ * so they're folded explicitly before the general diacritic-stripping pass.
+ */
+private fun String.foldForSearch(): String {
+    val turkishFolded = lowercase(Locale.ROOT)
+        .replace('ı', 'i')
+        .replace('ğ', 'g')
+        .replace('ş', 's')
+    return Normalizer.normalize(turkishFolded, Normalizer.Form.NFD)
+        .replace(Regex("\p{Mn}+"), "")
 }
