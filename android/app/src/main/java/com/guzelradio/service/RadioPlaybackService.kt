@@ -18,6 +18,8 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.net.toUri
 import androidx.media.MediaBrowserServiceCompat
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -69,6 +71,10 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
     private var currentUuid: String? = null
     private var playReported = false
 
+    // The list the current station was picked from (e.g. the Android Auto
+    // category folder being browsed), so skip next/previous moves within it.
+    private var currentQueue: List<Station> = emptyList()
+
     override fun onCreate() {
         super.onCreate()
         repository = RadioRepository.getInstance(this)
@@ -90,7 +96,21 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
     }
 
     private fun initExoPlayer() {
-        exoPlayer = ExoPlayer.Builder(this).build()
+        exoPlayer = ExoPlayer.Builder(this)
+            // Request real audio focus (so other apps like Spotify duck/stop us and
+            // vice versa — without this the system has no idea we're playing, and
+            // two apps end up playing over each other) and auto-pause when the
+            // audio route disappears (e.g. the car's Bluetooth disconnects) instead
+            // of continuing to blast out of the phone speaker.
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                    .build(),
+                /* handleAudioFocus= */ true
+            )
+            .setHandleAudioBecomingNoisy(true)
+            .build()
         exoPlayer.addListener(
             object : Player.Listener {
                 override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
@@ -287,6 +307,10 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
                 val uuid = intent?.getStringExtra(EXTRA_STATION_UUID)
                 val faviconUrl = intent?.getStringExtra(EXTRA_FAVICON_URL)
                 streamUrl?.let {
+                    // Started directly from the phone app, not from an Android
+                    // Auto browse selection — no queue context to skip within
+                    // until skipToStation() falls back to favorites.
+                    currentQueue = emptyList()
                     playStream(it, stationName, uuid, faviconUrl)
                 }
             }
@@ -441,9 +465,13 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
             if (mediaId == null) return
             if (mediaId.startsWith(STATION_PREFIX)) {
                 val uuid = mediaId.removePrefix(STATION_PREFIX)
-                // Find station in cache
-                val station = categoryStationCache.values.asSequence().flatten().firstOrNull { it.uuid == uuid }
+                // Find which browsed category list this station came from, so
+                // skip next/previous can move within that same list.
+                val queue = categoryStationCache.values.firstOrNull { list -> list.any { it.uuid == uuid } }
+                val station = queue?.firstOrNull { it.uuid == uuid }
+                    ?: categoryStationCache.values.asSequence().flatten().firstOrNull { it.uuid == uuid }
                 if (station != null) {
+                    currentQueue = queue ?: emptyList()
                     playStation(station)
                 }
             }
@@ -465,6 +493,22 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
         }
 
         private fun skipToStation(forward: Boolean) {
+            // Prefer the list the current station was browsed from (e.g. an
+            // Android Auto category folder) so skip moves within it.
+            val queue = currentQueue
+            val queueIndex = queue.indexOfFirst { it.uuid == currentUuid }
+            if (queue.isNotEmpty() && queueIndex != -1) {
+                val nextIndex = if (forward) {
+                    (queueIndex + 1) % queue.size
+                } else {
+                    (queueIndex - 1 + queue.size) % queue.size
+                }
+                playStation(queue[nextIndex])
+                return
+            }
+
+            // Fall back to favorites (e.g. playback was started from the phone
+            // app directly, outside of any Android Auto browsing context).
             serviceScope.launch {
                 val favorites = repository.fetchFavoriteStations()
                 if (favorites.isEmpty()) return@launch
@@ -479,6 +523,7 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
                         (currentIndex - 1 + favorites.size) % favorites.size
                     }
                 }
+                currentQueue = favorites
                 playStation(favorites[nextIndex])
             }
         }
