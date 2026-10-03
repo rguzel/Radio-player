@@ -15,8 +15,8 @@ Stream live radio from around the world — Android Auto, favorites, free.
 ## Full description (4000 char max)
 
 ```
-Guzel Radio is a free, no-nonsense internet radio player for Android, Wear OS,
-and Android Auto.
+Guzel Radio is a free, no-nonsense internet radio player for Android and
+Android Auto.
 
 Pick a country and start listening instantly — no account, no sign-up, no ads
 getting in the way of the music.
@@ -34,7 +34,6 @@ FEATURES
 • Full media controls on your lock screen and notification shade
 • Android Auto support — browse and play stations safely from your car's
   display
-• Wear OS companion app — control playback right from your watch
 
 NO ACCOUNT. NO TRACKING. NO CLUTTER.
 
@@ -72,5 +71,10 @@ https://radio.recepguzel.com/privacy.html
       320px, max 3840px on the long edge
       - Suggest: station grid (main screen), player bar expanded, country
         picker, Android Auto screen (can be a DHU screenshot)
-- [ ] (Optional) Wear OS screenshots if you want the watch app to appear
-      with its own listing entry
+## Not in this release
+The Wear OS watch app is NOT published to Play yet, so it must stay out of
+the store listing (claiming it would be a misrepresentation — users can't
+get it from Play). To ship it later it needs: the same applicationId as the
+phone app (`com.guzeldev.radio`), the same signing key, a distinct
+versionCode range, the `com.google.android.wearable.standalone` metadata,
+and Wear-specific screenshots.
