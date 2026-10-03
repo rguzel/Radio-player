@@ -8,6 +8,7 @@ import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaControllerCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import android.util.Log
+import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.guzelradio.data.Category
@@ -74,6 +75,14 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
     // to skip to because there are no favorites saved."
     private val _playbackMessage = MutableStateFlow<String?>(null)
     val playbackMessage: StateFlow<String?> = _playbackMessage.asStateFlow()
+
+    // True when the system won't show our notifications (POST_NOTIFICATIONS
+    // denied on Android 13+, or notifications switched off in settings).
+    // Playback still works, but the user loses the notification/lock screen
+    // controls — and if they swipe the app away they're left with no visible
+    // way to stop the audio short of force-stopping the app.
+    private val _notificationsBlocked = MutableStateFlow(false)
+    val notificationsBlocked: StateFlow<Boolean> = _notificationsBlocked.asStateFlow()
 
     // Pagination
     private var currentOffset = 0
@@ -264,6 +273,16 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
     /** Called by the UI once it has shown [playbackMessage] (e.g. in a Snackbar). */
     fun dismissPlaybackMessage() {
         _playbackMessage.value = null
+    }
+
+    /**
+     * Re-checks whether the system will actually display our notifications.
+     * Called from the Activity's onResume so the warning clears as soon as the
+     * user flips the setting back on.
+     */
+    fun refreshNotificationStatus() {
+        _notificationsBlocked.value =
+            !NotificationManagerCompat.from(getApplication()).areNotificationsEnabled()
     }
 
     fun togglePlayPause() {

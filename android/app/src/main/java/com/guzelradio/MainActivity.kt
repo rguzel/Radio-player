@@ -22,7 +22,10 @@ class MainActivity : ComponentActivity() {
 
     private val requestNotificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
-            // Notification permission result — playback works regardless
+            // Playback works either way, but without notifications the user has
+            // no playback controls outside the app — surface that in the UI so
+            // they aren't stuck force-stopping the app to silence it.
+            viewModel.refreshNotificationStatus()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -48,6 +51,13 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // The user may have toggled notifications in system settings while we
+        // were backgrounded (including via the banner's "Open settings" link).
+        viewModel.refreshNotificationStatus()
     }
 
     override fun onDestroy() {

@@ -2,6 +2,8 @@ package com.guzelradio.ui
 
 import java.text.Normalizer
 import java.util.Locale
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -62,6 +64,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -107,6 +110,8 @@ fun StationListScreen(
     val hasMore by viewModel.hasMore.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
     val playbackMessage by viewModel.playbackMessage.collectAsState()
+    val notificationsBlocked by viewModel.notificationsBlocked.collectAsState()
+    val context = LocalContext.current
 
     val gridState = rememberLazyGridState()
     var isSearchExpanded by remember { mutableStateOf(false) }
@@ -233,6 +238,43 @@ fun StationListScreen(
             selectedCategory = selectedCategory,
             onCategorySelected = { viewModel.selectCategory(it) }
         )
+
+        // Notifications are off: playback still works, but there'd be no
+        // controls in the shade or on the lock screen, so a user who leaves the
+        // app has no obvious way to stop the audio. Offer a one-tap fix.
+        if (notificationsBlocked) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(CardBgColor)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Notifications are off, so you won't get playback controls outside the app.",
+                    color = TextSecondary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Turn on",
+                    color = AccentColor,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable {
+                            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                            runCatching { context.startActivity(intent) }
+                        }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
+        }
 
         // Error message
         if (errorMessage != null) {
