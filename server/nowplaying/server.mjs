@@ -10,13 +10,21 @@
 //   400 invalid uuid · 404 unknown station · 415 playlist/non-audio stream
 //   429 too many streams from this client · 502 station unreachable · 503 relay full
 //
-// Both take a station uuid rather than a stream URL so they can't be used to
-// make this server fetch arbitrary addresses.
+//   POST /api/plays?uuid=<Radio Browser station uuid>
+//   204 play counted (at most once per listener per station every 30 min)
+//
+//   GET /api/plays/top?period=day|week|all&limit=50
+//   200 { period, stations: [{ uuid, plays }] }   most played by Guzel Radio listeners
+//
+// Endpoints take a station uuid rather than a stream URL so they can't be used
+// to make this server fetch arbitrary addresses.
 
 import http from 'node:http';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createSafeLookup, readStreamTitle } from './icy.mjs';
 import { createNowPlayingService } from './nowplaying.mjs';
+import { createPlayStats, PERIOD_HOURS } from './plays.mjs';
 import { createStreamRelay } from './stream-relay.mjs';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -36,18 +44,36 @@ function clientAddress(req) {
   return (typeof realIp === 'string' && realIp) || req.socket.remoteAddress || 'unknown';
 }
 
-export function createServer(service, relay) {
+export function createServer(service, relay, plays) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
-    const isNowPlaying = url.pathname === '/api/nowplaying';
-    const isStream = url.pathname === '/api/stream' && relay;
-    if (!isNowPlaying && !isStream) return send(res, 404, { error: 'Not found' });
-    if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'Method not allowed' });
+    const route = {
+      '/api/nowplaying': { methods: ['GET', 'HEAD'], enabled: true },
+      '/api/stream': { methods: ['GET', 'HEAD'], enabled: Boolean(relay) },
+      '/api/plays': { methods: ['POST'], enabled: Boolean(plays) },
+      '/api/plays/top': { methods: ['GET', 'HEAD'], enabled: Boolean(plays) },
+    }[url.pathname];
+    if (!route?.enabled) return send(res, 404, { error: 'Not found' });
+    if (!route.methods.includes(req.method ?? '')) return send(res, 405, { error: 'Method not allowed' });
+
+    if (url.pathname === '/api/plays/top') {
+      const period = url.searchParams.get('period') ?? 'day';
+      if (!Object.hasOwn(PERIOD_HOURS, period)) return send(res, 400, { error: 'period must be day, week or all' });
+      const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 50));
+      return send(res, 200, { period, stations: plays.top(period, limit) }, 'public, max-age=60');
+    }
 
     const uuid = (url.searchParams.get('uuid') ?? '').toLowerCase();
     if (!UUID_PATTERN.test(uuid)) return send(res, 400, { error: 'Invalid uuid' });
 
-    if (isStream) return relay.handle(req, res, uuid, clientAddress(req));
+    if (url.pathname === '/api/stream') return relay.handle(req, res, uuid, clientAddress(req));
+
+    if (url.pathname === '/api/plays') {
+      // Duplicates are ignored silently; the caller doesn't need to know.
+      plays.record(uuid, clientAddress(req));
+      res.writeHead(204, { 'Cache-Control': 'no-store' });
+      return res.end();
+    }
 
     try {
       const result = await service.get(uuid);
@@ -72,7 +98,23 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     maxPerClient: Number(process.env.RELAY_MAX_PER_CLIENT ?? 3),
   });
 
-  createServer(service, relay).listen(port, host, () => {
-    console.log(`listening on http://${host}:${port} (/api/nowplaying, /api/stream)`);
+  // systemd's StateDirectory= sets STATE_DIRECTORY; PLAYS_FILE overrides it.
+  const stateDir = process.env.STATE_DIRECTORY?.split(':')[0];
+  const playsFile = process.env.PLAYS_FILE ?? (stateDir ? path.join(stateDir, 'plays.json') : null);
+  const plays = createPlayStats({ file: playsFile });
+  await plays.load();
+  setInterval(() => plays.save(), 60_000).unref();
+  if (!playsFile) console.warn('play stats are not persisted: set PLAYS_FILE or StateDirectory=');
+
+  const server = createServer(service, relay, plays).listen(port, host, () => {
+    console.log(`listening on http://${host}:${port} (/api/nowplaying, /api/stream, /api/plays)`);
   });
+
+  const shutdown = async () => {
+    server.close();
+    await plays.save();
+    process.exit(0);
+  };
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
 }

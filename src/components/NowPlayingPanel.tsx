@@ -6,6 +6,7 @@ import { RadioStation } from '../types';
 import type { TrackInfo } from '../hooks/useNowPlaying';
 import { fallbackToInitials, stationArtwork } from '../utils/artwork';
 import { Equalizer } from './Equalizer';
+import { StationVotes } from './StationVotes';
 
 interface NowPlayingPanelProps {
   station: RadioStation | null;
@@ -22,6 +23,7 @@ interface NowPlayingPanelProps {
   onVolumeChange: (volume: number) => void;
   onToggleMute: () => void;
   onToggleFavorite: () => void;
+  onVote: (uuid: string) => Promise<{ ok: boolean; message: string }>;
 }
 
 /** Only http(s) homepages are linked; the directory is user-submitted data. */
@@ -67,8 +69,8 @@ export function NowPlayingPanel(props: NowPlayingPanelProps) {
     ['Country', station.country || null],
     ['Language', titleCase(station.language)],
     ['Format', format || null],
-    ['Votes', station.votes > 0 ? numberFormat.format(station.votes) : null],
-    ['Plays today', station.clickcount > 0 ? numberFormat.format(station.clickcount) : null],
+    // Radio Browser's clickcount is a rolling 24-hour count.
+    ['Plays (24 h)', station.clickcount > 0 ? numberFormat.format(station.clickcount) : null],
   ];
 
   return (
@@ -163,6 +165,7 @@ export function NowPlayingPanel(props: NowPlayingPanelProps) {
 
       {/* Details */}
       <dl className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-white/5 pt-5">
+        <StationVotes key={station.stationuuid} station={station} onVote={props.onVote} />
         {details.filter(([, value]) => value).map(([label, value]) => (
           <div key={label} className="min-w-0">
             <dt className="text-[9px] font-black tracking-[0.2em] text-slate-600 uppercase">{label}</dt>
