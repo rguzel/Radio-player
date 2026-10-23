@@ -8,7 +8,8 @@ A sleek, dark-themed internet radio player with 50,000+ stations worldwide, mood
 
 - **Live streaming** — play any of 50,000+ stations from the [Radio Browser](https://www.radio-browser.info/) public API, no account required
 - **Search** — search stations by name globally or scoped to a selected country
-- **Country filter** — browse by country from the dropdown; Canada and Türkiye are pinned at the top
+- **Country picker** — searchable list of every country with flags and station counts; Canada and Türkiye pinned at the top
+- **Mobile-first layout** — bottom tab bar, floating mini player, full-screen Now Playing sheet and bottom-sheet country picker on phones
 - **Moods** — four presets (Focus, Chill, Night, Vibe) map to genre tags; the top tags are queried and merged by popularity
 - **Most Played** — Today / This week / All time rankings from Guzel Radio's own listeners (see [server/nowplaying](server/nowplaying/README.md))
 - **Listeners** — which countries people listen from, for the same periods (web player only; country from Cloudflare; only per-country totals are stored; see [privacy-web.html](public/privacy-web.html))
@@ -84,7 +85,9 @@ src/
 │   ├── NowPlayingPanel.tsx  # Track, controls, equalizer and station details
 │   ├── ListenerCountries.tsx # Listeners tab: plays per country
 │   ├── Equalizer.tsx        # Canvas equalizer (real spectrum or simulated)
-│   └── StationVotes.tsx     # Vote count + vote button
+│   ├── StationVotes.tsx     # Vote count + vote button
+│   ├── CountryPicker.tsx    # Searchable country combobox with flags
+│   └── BottomNav.tsx        # Bottom tab bar on phones/tablets
 ├── hooks/
 │   ├── useRadioPlayer.ts    # Playback engine, skip queue, volume, Media Session
 │   ├── useNowPlaying.ts     # Polls /api/nowplaying for the current track
@@ -96,6 +99,7 @@ src/
 │   └── moodService.ts       # Mood → genre tag mapping (static, no external API call)
 └── utils/
     ├── artwork.ts           # Station artwork with local initials fallback
+    ├── countries.ts         # Country names (Intl) and self-hosted SVG flags
     └── mediaSession.ts      # Lock-screen metadata and tab title
 
 server/nowplaying/           # /api/nowplaying — ICY metadata endpoint (Node 20+, no deps)

@@ -44,18 +44,22 @@ export class RadioService {
     return request(`stations/topclick/${limit}`, { hidebroken: true }, signal);
   }
 
-  static searchStations(query: string, limit = 50, country?: string, signal?: AbortSignal): Promise<RadioStation[]> {
-    return request('stations/search', { ...LIST_DEFAULTS, name: query, country, limit }, signal);
+  // `countryCode` is an ISO 3166-1 alpha-2 code (e.g. "CA"), matched exactly.
+  static searchStations(query: string, limit = 50, countryCode?: string, signal?: AbortSignal): Promise<RadioStation[]> {
+    return request('stations/search', { ...LIST_DEFAULTS, name: query, countrycode: countryCode, limit }, signal);
   }
 
-  // `country` is a partial name match (Radio Browser stores names such as
-  // "The United Kingdom Of Great Britain And Northern Ireland").
-  static getStationsByTag(tag: string, limit = 50, country?: string, signal?: AbortSignal): Promise<RadioStation[]> {
-    return request('stations/search', { ...LIST_DEFAULTS, tag, country, limit }, signal);
+  static getStationsByTag(tag: string, limit = 50, countryCode?: string, signal?: AbortSignal): Promise<RadioStation[]> {
+    return request('stations/search', { ...LIST_DEFAULTS, tag, countrycode: countryCode, limit }, signal);
   }
 
-  static getStationsByCountry(country: string, limit = 50, signal?: AbortSignal): Promise<RadioStation[]> {
-    return request(`stations/bycountry/${encodeURIComponent(country)}`, { ...LIST_DEFAULTS, limit }, signal);
+  static getStationsByCountry(countryCode: string, limit = 50, signal?: AbortSignal): Promise<RadioStation[]> {
+    return request(`stations/bycountrycodeexact/${encodeURIComponent(countryCode)}`, { ...LIST_DEFAULTS, limit }, signal);
+  }
+
+  /** Countries with at least one working station. */
+  static getCountries(signal?: AbortSignal): Promise<{ name: string; iso_3166_1: string; stationcount: number }[]> {
+    return request('countries', { hidebroken: true }, signal);
   }
 
   static getStationsByUuids(uuids: string[], signal?: AbortSignal): Promise<RadioStation[]> {

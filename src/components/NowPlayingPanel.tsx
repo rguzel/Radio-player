@@ -5,6 +5,7 @@ import {
 import { RadioStation } from '../types';
 import type { TrackInfo } from '../hooks/useNowPlaying';
 import { fallbackToInitials, stationArtwork } from '../utils/artwork';
+import { countryName } from '../utils/countries';
 import { Equalizer } from './Equalizer';
 import { StationVotes } from './StationVotes';
 
@@ -66,7 +67,7 @@ export function NowPlayingPanel(props: NowPlayingPanelProps) {
   const homepage = safeHomepage(station.homepage);
   const format = [station.codec?.toUpperCase(), station.bitrate > 0 ? `${station.bitrate} kbps` : null].filter(Boolean).join(' · ');
   const details: [string, string | null][] = [
-    ['Country', station.country || null],
+    ['Country', station.countrycode ? countryName(station.countrycode) : station.country || null],
     ['Language', titleCase(station.language)],
     ['Format', format || null],
     // Radio Browser's clickcount is a rolling 24-hour count.
@@ -74,9 +75,9 @@ export function NowPlayingPanel(props: NowPlayingPanelProps) {
   ];
 
   return (
-    <section aria-label="Now playing" className="glass rounded-[2rem] p-6 flex flex-col gap-5">
+    <section aria-label="Now playing" className="glass rounded-3xl lg:rounded-[2rem] p-4 sm:p-6 flex flex-col gap-4 sm:gap-5">
       {/* Artwork */}
-      <div className="relative w-full max-w-[260px] lg:max-w-[200px] mx-auto aspect-square rounded-3xl overflow-hidden bg-slate-900 border border-white/10 shadow-2xl shadow-black/60">
+      <div className="relative w-full max-w-[220px] sm:max-w-[260px] lg:max-w-[200px] mx-auto aspect-square rounded-3xl overflow-hidden bg-slate-900 border border-white/10 shadow-2xl shadow-black/60">
         <img
           src={stationArtwork(station)}
           alt=""
