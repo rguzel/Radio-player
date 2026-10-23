@@ -274,6 +274,12 @@ export default function App() {
           </div>
           <h1 className="text-xl font-black tracking-tight text-white italic">GUZEL<span className="text-accent not-italic">RADIO</span></h1>
         </div>
+        <a
+          href="/privacy-web.html"
+          className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-600 hover:text-slate-300 transition-colors"
+        >
+          Privacy
+        </a>
       </header>
 
       <div className="max-w-[1480px] mx-auto w-full flex-1 lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-8 lg:items-start">
