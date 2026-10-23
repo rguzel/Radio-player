@@ -9,9 +9,11 @@ A sleek, dark-themed internet radio player with 50,000+ stations worldwide, mood
 - **Live streaming** — play any of 50,000+ stations from the [Radio Browser](https://www.radio-browser.info/) public API, no account required
 - **Search** — search stations by name globally or scoped to a selected country
 - **Country filter** — browse by country from the dropdown; Canada and Türkiye are pinned at the top
-- **Mood / AI curation** — four mood presets (Focus, Chill, Night, Vibe) map to genre tags and surface matching stations
+- **Moods** — four presets (Focus, Chill, Night, Vibe) map to genre tags; the top tags are queried and merged by popularity
 - **Favorites** — heart any station to save it; persisted in browser `localStorage` (survives page reloads, device-local)
-- **Media Session API** — lock screen / Android Auto controls: play, pause, next, previous track
+- **Media Session API** — lock screen / OS media controls: play, pause, next, previous station
+- **Volume control** — remembered between visits
+- **Resilient API access** — falls back across Radio Browser mirrors and shows a retry option when the directory is unreachable
 - **Animated player bar** — fixed footer with live signal indicator, bitrate, codec, and buffering state
 
 ## 📱 Android App
@@ -68,13 +70,18 @@ No backend, no database — fully static SPA.
 
 ```
 src/
-├── App.tsx                  # Main component — all UI, state, playback logic
+├── App.tsx                  # Main component — layout, station list, player bar
 ├── main.tsx                 # React entry point
 ├── index.css                # Global styles / Tailwind base
-├── types.ts                 # RadioStation and PlaybackState interfaces
-└── services/
-    ├── radioService.ts      # radio-browser.info API calls
-    └── geminiService.ts     # Mood → genre mapping (static, no external API call)
+├── types.ts                 # RadioStation interface
+├── hooks/
+│   ├── useRadioPlayer.ts    # Audio element, skip queue, volume, Media Session
+│   └── useFavorites.ts      # Favorites persisted to localStorage
+├── services/
+│   ├── radioService.ts      # radio-browser.info API calls with mirror failover
+│   └── moodService.ts       # Mood → genre tag mapping (static, no external API call)
+└── utils/
+    └── artwork.ts           # Station artwork with local initials fallback
 ```
 
 ## Run Locally
@@ -82,7 +89,7 @@ src/
 **Prerequisites:** Node.js 18+
 
 ```bash
-npm install
+npm ci
 npm run dev        # starts on http://localhost:3000
 ```
 

@@ -14,10 +14,3 @@ export interface RadioStation {
   codec: string;
   bitrate: number;
 }
-
-export interface PlaybackState {
-  currentStation: RadioStation | null;
-  isPlaying: boolean;
-  isBuffering: boolean;
-  volume: number;
-}

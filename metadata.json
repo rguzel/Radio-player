@@ -1,6 +1,0 @@
-{
-  "name": "Guzel Radio",
-  "description": "Premium global radio app featuring the best of Canada and Turkey, designed for Android Auto.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["audio", "media-session"]
-}
