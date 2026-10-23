@@ -92,5 +92,5 @@ export function createNowPlayingService({
     return pending;
   }
 
-  return { get };
+  return { get, streamUrl: streamUrlFor };
 }

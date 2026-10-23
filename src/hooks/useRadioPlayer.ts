@@ -33,6 +33,22 @@ function streamUrl(station: RadioStation): string {
   return station.url_resolved || station.url;
 }
 
+/** HTTP-only stations can't play on an HTTPS page (mixed content). */
+function needsRelay(station: RadioStation): boolean {
+  return window.location.protocol === 'https:' && streamUrl(station).startsWith('http://');
+}
+
+/**
+ * The URL the <audio> element should load. HTTP-only stations go through the
+ * same-origin HTTPS relay (server/nowplaying, /api/stream); being same-origin,
+ * relayed streams also get the real spectrum.
+ */
+function playbackUrl(station: RadioStation): string {
+  return needsRelay(station)
+    ? `/api/stream?uuid=${encodeURIComponent(station.stationuuid)}`
+    : streamUrl(station);
+}
+
 function isBlockedByBrowser(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'NotAllowedError';
 }
@@ -41,8 +57,8 @@ function describeError(station: RadioStation | null, error?: unknown): string {
   if (isBlockedByBrowser(error)) {
     return 'Playback was blocked by the browser. Press play to start.';
   }
-  if (station && window.location.protocol === 'https:' && streamUrl(station).startsWith('http://')) {
-    return 'This station only streams over insecure HTTP, which browsers block on secure sites.';
+  if (station && needsRelay(station)) {
+    return 'This station only streams over HTTP and could not be reached through the secure relay.';
   }
   return 'This station is offline or uses a format your browser cannot play.';
 }
@@ -134,7 +150,7 @@ class PlaybackEngine {
     if (analyser) void this.graph?.context.resume();
     this.update(s => ({ ...s, analyser }));
 
-    audio.src = streamUrl(station);
+    audio.src = playbackUrl(station);
     audio.play().catch(error => {
       // AbortError just means a newer play()/pause() superseded this one.
       if (error?.name !== 'AbortError') this.handleFailure(audio, error);
