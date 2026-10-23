@@ -12,5 +12,14 @@ export default defineConfig({
   },
   server: {
     hmr: process.env.DISABLE_HMR !== 'true',
+    // In production nginx serves /api from the same origin; in dev, forward it
+    // to the live server (override with API_PROXY_TARGET, e.g. a local
+    // server/nowplaying on http://127.0.0.1:3100).
+    proxy: {
+      '/api': {
+        target: process.env.API_PROXY_TARGET ?? 'https://radio.recepguzel.com',
+        changeOrigin: true,
+      },
+    },
   },
 });

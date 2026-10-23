@@ -6,12 +6,9 @@ import {
   Search,
   Radio,
   Heart,
-  Volume2,
-  VolumeX,
   Globe,
   TrendingUp,
-  SkipForward,
-  SkipBack,
+  ChevronDown,
   Sparkles,
   Zap,
   Coffee,
@@ -23,8 +20,12 @@ import { RadioStation } from './types';
 import { RadioService, uniqueStations } from './services/radioService';
 import { getMoodTags } from './services/moodService';
 import { useFavorites } from './hooks/useFavorites';
+import { useNowPlaying } from './hooks/useNowPlaying';
 import { useRadioPlayer } from './hooks/useRadioPlayer';
+import { NowPlayingPanel } from './components/NowPlayingPanel';
+import { Equalizer } from './components/Equalizer';
 import { fallbackToInitials, primaryTag, stationArtwork } from './utils/artwork';
+import { updateMediaSession } from './utils/mediaSession';
 
 const MOODS = [
   { id: 'focus', label: 'Focus', icon: <Zap size={16} /> },
@@ -175,13 +176,45 @@ export default function App() {
   const showListError = loadError !== null && activeTab !== 'favorites';
   const canSkip = player.queueSize > 1;
   const current = player.currentStation;
+  const track = useNowPlaying(current, player.isPlaying);
+
+  // Full-screen Now Playing sheet on small screens (the side panel is lg+ only).
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  useEffect(() => updateMediaSession(current, track), [current, track]);
+
+  useEffect(() => {
+    if (!sheetOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setSheetOpen(false); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [sheetOpen]);
+
+  const nowPlayingPanel = (
+    <NowPlayingPanel
+      station={current}
+      track={track}
+      isPlaying={player.isPlaying}
+      isBuffering={player.isBuffering}
+      error={player.error}
+      volume={player.volume}
+      analyser={player.analyser}
+      canSkip={canSkip}
+      isFavorite={current ? isFavorite(current.stationuuid) : false}
+      onTogglePlay={player.togglePlay}
+      onSkip={player.skip}
+      onVolumeChange={player.setVolume}
+      onToggleMute={toggleMute}
+      onToggleFavorite={() => current && toggleFavorite(current)}
+    />
+  );
 
   return (
-    <div className="min-h-screen relative flex flex-col pt-6 pb-24 px-4 overflow-hidden text-slate-100">
+    <div className="min-h-screen relative flex flex-col pt-6 pb-24 lg:pb-6 px-4 overflow-hidden text-slate-100">
       <div className="atmosphere" />
 
       {/* Header */}
-      <header className="flex justify-between items-center mb-10 px-2 max-w-7xl mx-auto w-full">
+      <header className="flex justify-between items-center mb-10 px-2 max-w-[1480px] mx-auto w-full">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 bg-gradient-to-tr from-amber-500 to-orange-600 rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(245,158,11,0.4)]">
             <Radio size={24} className="text-black" />
@@ -190,7 +223,8 @@ export default function App() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto w-full flex-1 flex flex-col min-h-0">
+      <div className="max-w-[1480px] mx-auto w-full flex-1 lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-8 lg:items-start">
+      <main className="w-full flex flex-col min-w-0">
         {/* Main Search Bar */}
         <div className="relative mb-8 group">
           <form onSubmit={handleSearch} role="search" className="relative z-10 w-full">
@@ -239,7 +273,7 @@ export default function App() {
         </div>
 
         {/* Tabs & Filters */}
-        <div className="flex items-center justify-between gap-4 mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 mb-6">
           <div className="flex gap-3 overflow-x-auto no-scrollbar py-1">
             <TabButton
               active={activeTab === 'trending'}
@@ -264,7 +298,7 @@ export default function App() {
             aria-label="Filter by country"
             value={selectedCountry}
             onChange={(e) => handleCountryFilter(e.target.value)}
-            className="bg-white/5 border border-white/10 text-sm text-slate-300 rounded-full px-4 py-2.5 focus:outline-none focus:border-accent/40 cursor-pointer shrink-0"
+            className="self-start sm:self-auto bg-white/5 border border-white/10 text-sm text-slate-300 rounded-full px-4 py-2.5 focus:outline-none focus:border-accent/40 cursor-pointer shrink-0"
           >
             <option value="" className="bg-slate-900 text-slate-300">All Countries</option>
             {COUNTRIES.map(c => (
@@ -274,7 +308,7 @@ export default function App() {
         </div>
 
         {/* Station List */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 overflow-y-auto pr-1 thin-scroll pb-32" aria-busy={showListLoading}>
+        <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-5 pr-1 pb-32 lg:pb-8" aria-busy={showListLoading}>
           {showListLoading ? (
             <StatusPanel
               icon={<div className="w-8 h-8 rounded-full border-2 border-accent/20 border-t-accent animate-spin" />}
@@ -316,17 +350,28 @@ export default function App() {
         </div>
       </main>
 
-      {/* Footer / Large Player Controls */}
+      {/* Now Playing side panel */}
+      <aside className="hidden lg:block sticky top-6 max-h-[calc(100vh-3rem)] overflow-y-auto thin-scroll">
+        {nowPlayingPanel}
+      </aside>
+      </div>
+
+      {/* Mini player (below lg); tap to open the full Now Playing sheet */}
       <AnimatePresence>
         {current && (
           <motion.footer
             initial={{ y: 200, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 200, opacity: 0 }}
-            className="fixed bottom-0 left-0 right-0 z-50 h-28 bg-black/85 backdrop-blur-3xl border-t border-white/10 px-6 sm:px-10 flex items-center justify-between shadow-[0_-20px_60px_rgba(0,0,0,0.6)]"
+            className="lg:hidden fixed bottom-0 left-0 right-0 z-50 h-24 bg-black/85 backdrop-blur-3xl border-t border-white/10 pl-4 pr-5 sm:px-8 flex items-center gap-4 shadow-[0_-20px_60px_rgba(0,0,0,0.6)]"
           >
-            <div className="flex items-center gap-5 sm:w-1/3 min-w-0">
-              <div className="hidden sm:block w-16 h-16 bg-slate-900 border border-white/10 rounded-2xl overflow-hidden shadow-2xl shrink-0">
+            <button
+              onClick={() => setSheetOpen(true)}
+              aria-label="Open now playing"
+              aria-haspopup="dialog"
+              className="flex-1 min-w-0 flex items-center gap-4 text-left"
+            >
+              <div className="w-14 h-14 bg-slate-900 border border-white/10 rounded-2xl overflow-hidden shadow-2xl shrink-0">
                 <img
                   src={stationArtwork(current)}
                   alt=""
@@ -334,82 +379,62 @@ export default function App() {
                   onError={(e) => fallbackToInitials(e, current.name)}
                 />
               </div>
-              <div className="min-w-0" aria-live="polite">
-                <div className="flex items-center gap-2 mb-1.5">
-                  <div className={`w-2 h-2 rounded-full ${
+              <div className="min-w-0 flex-1" aria-live="polite">
+                <div className="flex items-center gap-2 mb-1">
+                  <div className={`w-2 h-2 rounded-full shrink-0 ${
                     player.error ? 'bg-slate-500'
                       : player.isBuffering ? 'bg-amber-400 animate-pulse'
-                      : 'bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.5)]'
+                      : player.isPlaying ? 'bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.5)]'
+                      : 'bg-slate-500'
                   }`} />
                   <span className="text-[10px] font-black tracking-[0.2em] text-slate-500 uppercase">
-                    {player.error ? 'Unavailable' : player.isBuffering ? 'Syncing...' : player.isPlaying ? 'Live Stream' : 'Paused'}
+                    {player.error ? 'Unavailable' : player.isBuffering ? 'Syncing...' : player.isPlaying ? 'Live' : 'Paused'}
                   </span>
+                  <Equalizer analyser={null} active={player.isPlaying && !player.isBuffering && !player.error} bars={5} className="h-3.5 w-7 ml-1" />
                 </div>
-                <h4 className="font-bold text-base text-white truncate max-w-[200px] sm:max-w-[280px]">{current.name}</h4>
-                {player.error ? (
-                  <p className="text-[11px] text-red-300/80 truncate max-w-[220px] sm:max-w-[320px]" title={player.error}>{player.error}</p>
-                ) : (
-                  <div className="flex items-center gap-3">
-                    {current.codec && (
-                      <>
-                        <p className="text-[10px] text-accent font-bold uppercase tracking-widest">{current.codec}</p>
-                        <span className="w-1 h-1 bg-slate-700 rounded-full"></span>
-                      </>
-                    )}
-                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">
-                      {current.bitrate > 0 ? `${current.bitrate}kbps` : 'Live'}
-                    </p>
-                  </div>
-                )}
+                <h4 className="font-bold text-sm text-white truncate">{current.name}</h4>
+                <p className={`text-[11px] truncate ${player.error ? 'text-red-300/80' : 'text-slate-400'}`}>
+                  {player.error
+                    ?? (track ? `${track.artist ? `${track.artist} – ` : ''}${track.title}` : [current.codec, current.bitrate > 0 ? `${current.bitrate}kbps` : null].filter(Boolean).join(' · ') || 'Live')}
+                </p>
               </div>
-            </div>
-
-            <div className="flex items-center gap-6 lg:gap-12">
-              <button
-                onClick={() => player.skip(-1)}
-                disabled={!canSkip}
-                aria-label="Previous station"
-                className="hidden sm:block p-3 text-slate-500 hover:text-white disabled:opacity-30 disabled:hover:text-slate-500 transition-colors active:scale-90"
-              >
-                <SkipBack size={24} />
-              </button>
-              <button
-                onClick={player.togglePlay}
-                aria-label={player.isPlaying ? 'Pause' : 'Play'}
-                className="w-16 h-16 bg-white text-black rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(255,255,255,0.15)] hover:scale-105 active:scale-95 transition-all glow-accent relative z-10"
-              >
-                {player.isPlaying ? <Pause size={32} fill="currentColor" /> : <Play size={32} fill="currentColor" className="ml-1" />}
-              </button>
-              <button
-                onClick={() => player.skip(1)}
-                disabled={!canSkip}
-                aria-label="Next station"
-                className="hidden sm:block p-3 text-slate-500 hover:text-white disabled:opacity-30 disabled:hover:text-slate-500 transition-colors active:scale-90"
-              >
-                <SkipForward size={24} />
-              </button>
-            </div>
-
-            <div className="hidden lg:flex w-1/3 justify-end items-center gap-4">
-              <button
-                onClick={toggleMute}
-                aria-label={player.volume > 0 ? 'Mute' : 'Unmute'}
-                className="text-slate-500 hover:text-white transition-colors"
-              >
-                {player.volume > 0 ? <Volume2 size={18} /> : <VolumeX size={18} />}
-              </button>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={player.volume}
-                onChange={(e) => player.setVolume(Number(e.target.value))}
-                aria-label="Volume"
-                className="w-28 accent-accent cursor-pointer"
-              />
-            </div>
+            </button>
+            <button
+              onClick={player.togglePlay}
+              aria-label={player.isPlaying ? 'Pause' : 'Play'}
+              className="w-14 h-14 bg-white text-black rounded-full flex items-center justify-center shrink-0 shadow-[0_0_30px_rgba(255,255,255,0.15)] active:scale-95 transition-all glow-accent"
+            >
+              {player.isPlaying ? <Pause size={26} fill="currentColor" /> : <Play size={26} fill="currentColor" className="ml-1" />}
+            </button>
           </motion.footer>
+        )}
+      </AnimatePresence>
+
+      {/* Now Playing sheet (below lg) */}
+      <AnimatePresence>
+        {sheetOpen && current && (
+          <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Now playing"
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 30, stiffness: 300 }}
+            className="lg:hidden fixed inset-0 z-[60] bg-[#050505] overflow-y-auto px-4 pt-4 pb-8"
+          >
+            <div className="max-w-md mx-auto">
+              <button
+                onClick={() => setSheetOpen(false)}
+                aria-label="Close now playing"
+                autoFocus
+                className="mb-4 p-2 rounded-full text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+              >
+                <ChevronDown size={28} />
+              </button>
+              {nowPlayingPanel}
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

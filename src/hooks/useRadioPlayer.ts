@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { RadioStation } from '../types';
-import { primaryTag, stationArtwork } from '../utils/artwork';
 
 const VOLUME_KEY = 'guzel_volume';
 const DEFAULT_VOLUME = 0.8;
@@ -14,7 +13,11 @@ export interface PlayerState {
   volume: number;
   /** Number of stations in the list the current station was started from. */
   queueSize: number;
+  /** Live frequency data for the equalizer; null when the stream doesn't allow it. */
+  analyser: AnalyserNode | null;
 }
+
+type StateUpdate = (update: (state: PlayerState) => PlayerState) => void;
 
 function loadVolume(): number {
   try {
@@ -30,8 +33,12 @@ function streamUrl(station: RadioStation): string {
   return station.url_resolved || station.url;
 }
 
+function isBlockedByBrowser(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'NotAllowedError';
+}
+
 function describeError(station: RadioStation | null, error?: unknown): string {
-  if (error instanceof DOMException && error.name === 'NotAllowedError') {
+  if (isBlockedByBrowser(error)) {
     return 'Playback was blocked by the browser. Press play to start.';
   }
   if (station && window.location.protocol === 'https:' && streamUrl(station).startsWith('http://')) {
@@ -40,25 +47,157 @@ function describeError(station: RadioStation | null, error?: unknown): string {
   return 'This station is offline or uses a format your browser cannot play.';
 }
 
-function updateMediaMetadata(station: RadioStation) {
-  if (!('mediaSession' in navigator)) return;
-  navigator.mediaSession.metadata = new MediaMetadata({
-    title: station.name,
-    artist: 'Guzel Radio',
-    album: [station.country, primaryTag(station)?.toUpperCase() ?? 'Live'].filter(Boolean).join(' • '),
-    artwork: [{ src: stationArtwork(station), sizes: '512x512' }],
-  });
+/**
+ * Whether to try routing audio through Web Audio for a real spectrum.
+ * Only on wide screens (where the equalizer panel shows), and never on iOS,
+ * where Web Audio is suspended when the screen locks and would cut the radio.
+ */
+function spectrumSupported(): boolean {
+  if (typeof AudioContext === 'undefined') return false;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  return !isIOS && window.matchMedia('(min-width: 1024px)').matches;
 }
 
 /**
- * Owns the <audio> element for live radio playback, including the queue used
- * by skip next/previous and the Media Session (lock screen / OS controls).
+ * Live radio playback outside React: audio elements, skip queue and volume.
+ *
+ * Two <audio> elements are used. Reading a stream's frequency data requires it
+ * to be loaded with CORS, which many radio servers don't allow; and once an
+ * element is wired into Web Audio, a non-CORS stream on it plays as silence.
+ * So each station is first tried on the CORS + analyser element and, if that
+ * fails to load, replayed on a plain element (the equalizer then animates
+ * without real data).
  */
-export function useRadioPlayer() {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const currentRef = useRef<RadioStation | null>(null);
-  const queueRef = useRef<RadioStation[]>([]);
+class PlaybackEngine {
+  private plain: HTMLAudioElement | null = null;
+  private analysed: HTMLAudioElement | null = null;
+  private graph: { context: AudioContext; analyser: AnalyserNode; gain: GainNode } | null = null;
+  private active: HTMLAudioElement | null = null;
+  /** Whether the active element has started playing since its last load. */
+  private started = false;
+  private current: RadioStation | null = null;
+  private queue: RadioStation[] = [];
 
+  constructor(private readonly update: StateUpdate, private volume: number) {}
+
+  play(station: RadioStation, queue: RadioStation[] = this.queue) {
+    this.current = station;
+    this.queue = queue;
+    this.update(s => ({ ...s, currentStation: station, isPlaying: true, isBuffering: true, error: null, queueSize: queue.length }));
+    this.start(this.getAnalysed() ?? this.getPlain(), station);
+  }
+
+  pause() {
+    this.active?.pause();
+  }
+
+  // Live streams are reloaded on resume rather than continuing from the paused
+  // buffer, which would otherwise play minutes-old audio.
+  resume() {
+    if (this.current) this.play(this.current);
+  }
+
+  togglePlay() {
+    if (!this.active || this.active.paused) this.resume();
+    else this.pause();
+  }
+
+  skip(offset: 1 | -1) {
+    const index = this.queue.findIndex(s => s.stationuuid === this.current?.stationuuid);
+    if (this.queue.length < 2 || index === -1) return;
+    this.play(this.queue[(index + offset + this.queue.length) % this.queue.length]);
+  }
+
+  setVolume(volume: number) {
+    this.volume = volume;
+    if (this.plain) this.plain.volume = volume;
+    if (this.graph) this.graph.gain.gain.value = volume;
+  }
+
+  dispose() {
+    this.plain?.pause();
+    this.analysed?.pause();
+  }
+
+  private start(audio: HTMLAudioElement, station: RadioStation) {
+    const previous = this.active;
+    if (previous && previous !== audio) {
+      previous.pause();
+      previous.removeAttribute('src');
+      previous.load(); // drop the old connection
+    }
+    this.active = audio;
+    this.started = false;
+
+    const analyser = audio === this.analysed ? this.graph?.analyser ?? null : null;
+    if (analyser) void this.graph?.context.resume();
+    this.update(s => ({ ...s, analyser }));
+
+    audio.src = streamUrl(station);
+    audio.play().catch(error => {
+      // AbortError just means a newer play()/pause() superseded this one.
+      if (error?.name !== 'AbortError') this.handleFailure(audio, error);
+    });
+  }
+
+  private handleFailure(audio: HTMLAudioElement, error?: unknown) {
+    if (audio !== this.active) return;
+    if (audio === this.analysed && !this.started && !isBlockedByBrowser(error) && this.current) {
+      // Most likely the stream doesn't allow CORS; play it without the analyser.
+      this.start(this.getPlain(), this.current);
+      return;
+    }
+    this.update(s => ({ ...s, isPlaying: false, isBuffering: false, error: describeError(this.current, error) }));
+  }
+
+  private wire(audio: HTMLAudioElement): HTMLAudioElement {
+    const onActive = (handler: () => void) => () => {
+      if (audio === this.active) handler();
+    };
+    audio.addEventListener('play', onActive(() => this.update(s => ({ ...s, isPlaying: true }))));
+    audio.addEventListener('playing', onActive(() => {
+      this.started = true;
+      this.update(s => ({ ...s, isPlaying: true, isBuffering: false, error: null }));
+    }));
+    audio.addEventListener('waiting', onActive(() => this.update(s => ({ ...s, isBuffering: true }))));
+    audio.addEventListener('pause', onActive(() => this.update(s => ({ ...s, isPlaying: false, isBuffering: false }))));
+    audio.addEventListener('error', () => this.handleFailure(audio));
+    return audio;
+  }
+
+  private getPlain(): HTMLAudioElement {
+    if (!this.plain) {
+      this.plain = this.wire(new Audio());
+      this.plain.volume = this.volume;
+    }
+    return this.plain;
+  }
+
+  /** The CORS element routed through an analyser, or null if unavailable. */
+  private getAnalysed(): HTMLAudioElement | null {
+    if (this.analysed || !spectrumSupported()) return this.analysed;
+    try {
+      const audio = new Audio();
+      audio.crossOrigin = 'anonymous';
+      const context = new AudioContext();
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.75;
+      // Volume is applied after the analyser so the equalizer keeps moving when muted.
+      const gain = context.createGain();
+      gain.gain.value = this.volume;
+      context.createMediaElementSource(audio).connect(analyser).connect(gain).connect(context.destination);
+      this.graph = { context, analyser, gain };
+      this.analysed = this.wire(audio);
+    } catch {
+      this.graph = null;
+    }
+    return this.analysed;
+  }
+}
+
+export function useRadioPlayer() {
   const [state, setState] = useState<PlayerState>(() => ({
     currentStation: null,
     isPlaying: false,
@@ -66,103 +205,34 @@ export function useRadioPlayer() {
     error: null,
     volume: loadVolume(),
     queueSize: 0,
+    analyser: null,
   }));
 
-  const getAudio = useCallback(() => {
-    if (!audioRef.current) audioRef.current = new Audio();
-    return audioRef.current;
-  }, []);
+  const engineRef = useRef<PlaybackEngine | null>(null);
+  if (!engineRef.current) engineRef.current = new PlaybackEngine(setState, state.volume);
+  const engine = engineRef.current;
 
-  const fail = useCallback((error?: unknown) => {
-    setState(s => ({ ...s, isPlaying: false, isBuffering: false, error: describeError(currentRef.current, error) }));
-  }, []);
-
-  const play = useCallback((station: RadioStation, queue: RadioStation[] = queueRef.current) => {
-    const audio = getAudio();
-    currentRef.current = station;
-    queueRef.current = queue;
-    setState(s => ({ ...s, currentStation: station, isPlaying: true, isBuffering: true, error: null, queueSize: queue.length }));
-    updateMediaMetadata(station);
-
-    audio.src = streamUrl(station);
-    audio.play().catch(error => {
-      // AbortError just means a newer play()/pause() superseded this one.
-      if (error?.name !== 'AbortError') fail(error);
-    });
-  }, [getAudio, fail]);
-
-  const pause = useCallback(() => {
-    getAudio().pause();
-  }, [getAudio]);
-
-  // Live streams are reloaded on resume rather than continuing from the paused
-  // buffer, which would otherwise play minutes-old audio.
-  const resume = useCallback(() => {
-    if (currentRef.current) play(currentRef.current);
-  }, [play]);
-
-  const togglePlay = useCallback(() => {
-    if (getAudio().paused) resume();
-    else pause();
-  }, [getAudio, pause, resume]);
-
-  const skip = useCallback((offset: 1 | -1) => {
-    const queue = queueRef.current;
-    const index = queue.findIndex(s => s.stationuuid === currentRef.current?.stationuuid);
-    if (queue.length < 2 || index === -1) return;
-    play(queue[(index + offset + queue.length) % queue.length]);
-  }, [play]);
-
-  const setVolume = useCallback((volume: number) => {
-    setState(s => ({ ...s, volume }));
-  }, []);
-
-  // Audio element events
-  useEffect(() => {
-    const audio = getAudio();
-    const onPlay = () => setState(s => ({ ...s, isPlaying: true }));
-    const onPlaying = () => setState(s => ({ ...s, isPlaying: true, isBuffering: false, error: null }));
-    const onWaiting = () => setState(s => ({ ...s, isBuffering: true }));
-    const onPause = () => setState(s => ({ ...s, isPlaying: false, isBuffering: false }));
-    const onError = () => fail();
-
-    audio.addEventListener('play', onPlay);
-    audio.addEventListener('playing', onPlaying);
-    audio.addEventListener('waiting', onWaiting);
-    audio.addEventListener('pause', onPause);
-    audio.addEventListener('error', onError);
-    return () => {
-      audio.removeEventListener('play', onPlay);
-      audio.removeEventListener('playing', onPlaying);
-      audio.removeEventListener('waiting', onWaiting);
-      audio.removeEventListener('pause', onPause);
-      audio.removeEventListener('error', onError);
-    };
-  }, [getAudio, fail]);
-
-  // Stop audio if the app unmounts.
-  useEffect(() => () => audioRef.current?.pause(), []);
+  useEffect(() => () => engine.dispose(), [engine]);
 
   useEffect(() => {
-    getAudio().volume = state.volume;
+    engine.setVolume(state.volume);
     try {
       localStorage.setItem(VOLUME_KEY, String(state.volume));
     } catch {
       // Storage blocked; volume just won't be remembered.
     }
-  }, [getAudio, state.volume]);
+  }, [engine, state.volume]);
 
-  // Media Session handlers are registered once and read the latest station and
-  // queue through refs, so lock-screen skip always uses the current list.
+  // Lock-screen / OS media controls.
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
     const session = navigator.mediaSession;
     const handlers: [MediaSessionAction, MediaSessionActionHandler][] = [
-      ['play', resume],
-      ['pause', pause],
-      ['stop', pause],
-      ['nexttrack', () => skip(1)],
-      ['previoustrack', () => skip(-1)],
+      ['play', () => engine.resume()],
+      ['pause', () => engine.pause()],
+      ['stop', () => engine.pause()],
+      ['nexttrack', () => engine.skip(1)],
+      ['previoustrack', () => engine.skip(-1)],
     ];
     for (const [action, handler] of handlers) {
       try {
@@ -180,12 +250,19 @@ export function useRadioPlayer() {
         }
       }
     };
-  }, [resume, pause, skip]);
+  }, [engine]);
 
   useEffect(() => {
     if (!('mediaSession' in navigator) || !state.currentStation) return;
     navigator.mediaSession.playbackState = state.isPlaying ? 'playing' : 'paused';
   }, [state.isPlaying, state.currentStation]);
 
-  return { ...state, play, togglePlay, skip, setVolume };
+  const [actions] = useState(() => ({
+    play: (station: RadioStation, queue?: RadioStation[]) => engine.play(station, queue),
+    togglePlay: () => engine.togglePlay(),
+    skip: (offset: 1 | -1) => engine.skip(offset),
+    setVolume: (volume: number) => setState(s => ({ ...s, volume })),
+  }));
+
+  return { ...state, ...actions };
 }

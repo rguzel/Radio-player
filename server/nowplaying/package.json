@@ -1,0 +1,14 @@
+{
+  "name": "guzel-radio-nowplaying",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Now-playing (ICY metadata) endpoint for the Guzel Radio web player",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test"
+  }
+}

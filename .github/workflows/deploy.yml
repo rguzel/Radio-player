@@ -24,6 +24,10 @@ jobs:
       - name: Type check
         run: npm run lint
 
+      - name: Now-playing server tests
+        working-directory: server/nowplaying
+        run: npm test
+
       - name: Build
         run: npm run build
 
