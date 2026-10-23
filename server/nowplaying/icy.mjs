@@ -6,10 +6,10 @@
 //
 // Metadata looks like: StreamTitle='Artist - Title';StreamUrl='';
 
-import dns from 'node:dns';
-import http from 'node:http';
-import https from 'node:https';
-import net from 'node:net';
+import { createSafeLookup } from './safety.mjs';
+import { openStream } from './stream-client.mjs';
+
+export { createSafeLookup, isBlockedAddress } from './safety.mjs';
 
 // Real servers use 8 KB–32 KB; anything larger is not worth downloading.
 const MAX_METAINT = 128 * 1024;
@@ -95,103 +95,31 @@ export function createIcyReader(metaInt, maxBlocks = MAX_BLOCKS) {
   };
 }
 
-// Addresses a public stream URL must never resolve to (loopback, private
-// ranges, link-local/cloud metadata, multicast, reserved).
-const blockedRanges = new net.BlockList();
-for (const [address, prefix] of [
-  ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16],
-  ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['224.0.0.0', 4], ['240.0.0.0', 4],
-]) blockedRanges.addSubnet(address, prefix, 'ipv4');
-for (const [address, prefix] of [['::', 128], ['::1', 128], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8]]) {
-  blockedRanges.addSubnet(address, prefix, 'ipv6');
-}
-
-export function isBlockedAddress(address) {
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address);
-  if (mapped) return blockedRanges.check(mapped[1], 'ipv4');
-  return blockedRanges.check(address, net.isIPv6(address) ? 'ipv6' : 'ipv4');
-}
-
-/**
- * dns.lookup replacement that refuses blocked addresses. Used as the socket's
- * lookup function, so the check applies to the address actually connected to
- * (no DNS-rebinding gap) and to every redirect hop.
- */
-export function createSafeLookup({ allowPrivateNetworks = false } = {}) {
-  const lookup = (hostname, options, callback) => {
-    dns.lookup(hostname, { ...options, all: true }, (error, addresses) => {
-      if (error) return callback(error);
-      const blocked = allowPrivateNetworks ? undefined : addresses.find(a => isBlockedAddress(a.address));
-      if (blocked) return callback(Object.assign(new Error(`Blocked address ${blocked.address}`), { code: 'EBLOCKED' }));
-      if (options?.all) return callback(null, addresses);
-      callback(null, addresses[0].address, addresses[0].family);
-    });
-  };
-  // Node skips the lookup function for IP-literal hosts, so readStreamTitle
-  // checks those itself with this.
-  lookup.isAllowed = address => allowPrivateNetworks || !isBlockedAddress(address);
-  return lookup;
-}
-
 /**
  * Connects to a stream and resolves with its current "StreamTitle", or null
  * when the stream has no ICY metadata. Rejects on network/HTTP errors.
  */
-export function readStreamTitle(url, { timeoutMs = 8000, maxRedirects = 3, lookup = createSafeLookup() } = {}) {
+export async function readStreamTitle(url, { timeoutMs = 8000, lookup = createSafeLookup() } = {}) {
   const signal = AbortSignal.timeout(timeoutMs);
+  const { status, headers, body } = await openStream(url, { lookup, signal, headers: { 'Icy-MetaData': '1' } });
 
-  const attempt = (target, redirectsLeft) => new Promise((resolve, reject) => {
-    let parsed;
-    try {
-      parsed = new URL(target);
-    } catch {
-      return reject(new Error('Invalid stream URL'));
-    }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return reject(new Error(`Unsupported protocol ${parsed.protocol}`));
-    }
+  try {
+    if (status !== 200) throw new Error(`Stream responded with HTTP ${status}`);
+    const metaInt = Number(headers['icy-metaint']);
+    if (!Number.isInteger(metaInt) || metaInt <= 0 || metaInt > MAX_METAINT) return null;
 
-    const literalIp = parsed.hostname.replace(/^\[|\]$/g, '');
-    if (net.isIP(literalIp) && lookup.isAllowed?.(literalIp) === false) {
-      return reject(Object.assign(new Error(`Blocked address ${literalIp}`), { code: 'EBLOCKED' }));
-    }
-
-    const client = parsed.protocol === 'https:' ? https : http;
-    const req = client.get(parsed, {
-      headers: { 'Icy-MetaData': '1', 'User-Agent': 'GuzelRadio-NowPlaying/1.0' },
-      lookup,
-      signal,
-    }, res => {
-      const status = res.statusCode ?? 0;
-      if (status >= 300 && status < 400 && res.headers.location) {
-        req.destroy();
-        if (redirectsLeft <= 0) return reject(new Error('Too many redirects'));
-        return resolve(attempt(new URL(res.headers.location, parsed).toString(), redirectsLeft - 1));
-      }
-      if (status !== 200) {
-        req.destroy();
-        return reject(new Error(`Stream responded with HTTP ${status}`));
-      }
-
-      const metaInt = Number(res.headers['icy-metaint']);
-      if (!Number.isInteger(metaInt) || metaInt <= 0 || metaInt > MAX_METAINT) {
-        req.destroy();
-        return resolve(null);
-      }
-
-      const reader = createIcyReader(metaInt);
-      res.on('data', chunk => {
+    const reader = createIcyReader(metaInt);
+    return await new Promise((resolve, reject) => {
+      body.on('data', chunk => {
         const metadata = reader.push(chunk);
-        if (metadata !== undefined) {
-          req.destroy();
-          resolve(parseStreamTitle(metadata));
-        }
+        if (metadata !== undefined) resolve(parseStreamTitle(metadata));
       });
-      res.on('end', () => resolve(null));
-      res.on('error', reject);
+      body.on('end', () => resolve(null));
+      body.on('error', reject);
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      body.resume();
     });
-    req.on('error', reject);
-  });
-
-  return attempt(url, maxRedirects);
+  } finally {
+    body.destroy();
+  }
 }

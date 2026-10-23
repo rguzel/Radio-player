@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import net from 'node:net';
 import { after, before, describe, it } from 'node:test';
 import {
   createIcyReader, createSafeLookup, decodeMetadata, isBlockedAddress,
@@ -7,6 +8,8 @@ import {
 } from './icy.mjs';
 import { createNowPlayingService } from './nowplaying.mjs';
 import { createServer } from './server.mjs';
+import { openStream } from './stream-client.mjs';
+import { createStreamRelay } from './stream-relay.mjs';
 
 /** Builds an ICY body: one metaint of audio followed by each metadata block. */
 function icyBody(metaInt, ...blocks) {
@@ -181,5 +184,136 @@ describe('HTTP endpoint', () => {
     assert.equal((await fetch(`${base}/api/nowplaying?uuid=http://evil`)).status, 400);
     assert.equal((await fetch(`${base}/api/nowplaying?uuid=00000000-0000-0000-0000-000000000000`)).status, 404);
     assert.equal((await fetch(`${base}/other`)).status, 404);
+  });
+});
+
+describe('SHOUTcast "ICY 200 OK" responses', () => {
+  let server;
+  let base;
+  const lookup = createSafeLookup({ allowPrivateNetworks: true });
+
+  before(async () => {
+    // Raw TCP: Node's http server can't produce an ICY status line.
+    server = net.createServer(socket => {
+      socket.once('data', () => {
+        socket.write('ICY 200 OK\r\nicy-name: Old Shoutcast\r\nContent-Type: audio/mpeg\r\nicy-metaint: 256\r\n\r\n');
+        socket.write(icyBody(256, "StreamTitle='Barış Manço - Gülpembe';"));
+      });
+      socket.on('error', () => {});
+    });
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    base = `http://127.0.0.1:${server.address().port}`;
+  });
+
+  after(() => server.close());
+
+  it('reads titles from ICY status-line servers', async () => {
+    assert.equal(await readStreamTitle(`${base}/;`, { lookup }), 'Barış Manço - Gülpembe');
+  });
+
+  it('opens them as streams', async () => {
+    const { status, headers, body } = await openStream(`${base}/;`, { lookup });
+    body.destroy();
+    assert.equal(status, 200);
+    assert.equal(headers['icy-name'], 'Old Shoutcast');
+  });
+});
+
+describe('stream relay', () => {
+  let upstream;
+  let upstreamBase;
+  let openConnections = 0;
+  const lookup = createSafeLookup({ allowPrivateNetworks: true });
+
+  before(async () => {
+    upstream = http.createServer((req, res) => {
+      if (req.url === '/playlist') {
+        res.writeHead(200, { 'Content-Type': 'audio/x-mpegurl' });
+        return res.end('#EXTM3U\n');
+      }
+      openConnections++;
+      res.on('close', () => openConnections--);
+      res.writeHead(200, { 'Content-Type': 'audio/mpeg' });
+      res.write(Buffer.alloc(4096, 0x55)); // keeps streaming until the client leaves
+    });
+    await new Promise(resolve => upstream.listen(0, '127.0.0.1', resolve));
+    upstreamBase = `http://127.0.0.1:${upstream.address().port}`;
+  });
+
+  after(() => upstream.closeAllConnections() || upstream.close());
+
+  async function startRelay(options = {}) {
+    const urls = {
+      [uuidOf(1)]: `${upstreamBase}/live`,
+      [uuidOf(2)]: 'https://secure.example/stream',
+      [uuidOf(3)]: `${upstreamBase}/playlist`,
+      [uuidOf(4)]: 'http://127.0.0.1:9/private',
+    };
+    const relay = createStreamRelay({ getStreamUrl: async id => urls[id] ?? null, lookup, ...options });
+    const server = createServer({ get: async () => null }, relay);
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    return { relay, server, base: `http://127.0.0.1:${server.address().port}` };
+  }
+
+  const uuidOf = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+  const waitUntil = async (condition, ms = 2000) => {
+    const end = Date.now() + ms;
+    while (!condition() && Date.now() < end) await new Promise(r => setTimeout(r, 20));
+    return condition();
+  };
+
+  it('relays audio and closes upstream when the listener leaves', async () => {
+    const { relay, server, base } = await startRelay();
+    const controller = new AbortController();
+    const response = await fetch(`${base}/api/stream?uuid=${uuidOf(1)}`, { signal: controller.signal });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'audio/mpeg');
+    const reader = response.body.getReader();
+    const { value } = await reader.read();
+    assert.ok(value.length > 0 && value[0] === 0x55);
+    assert.equal(relay.activeStreams, 1);
+
+    controller.abort();
+    assert.ok(await waitUntil(() => relay.activeStreams === 0 && openConnections === 0), 'slot released and upstream closed');
+    server.close();
+  });
+
+  it('redirects stations that already serve HTTPS', async () => {
+    const { server, base } = await startRelay();
+    const response = await fetch(`${base}/api/stream?uuid=${uuidOf(2)}`, { redirect: 'manual' });
+    assert.equal(response.status, 302);
+    assert.equal(response.headers.get('location'), 'https://secure.example/stream');
+    server.close();
+  });
+
+  it('refuses playlists, unknown stations and private addresses', async () => {
+    const { server, base } = await startRelay({ lookup: createSafeLookup() });
+    assert.equal((await fetch(`${base}/api/stream?uuid=${uuidOf(9)}`)).status, 404);
+    assert.equal((await fetch(`${base}/api/stream?uuid=${uuidOf(4)}`)).status, 502);
+    assert.equal((await fetch(`${base}/api/stream?uuid=bad`)).status, 400);
+    server.close();
+
+    const open = await startRelay();
+    assert.equal((await fetch(`${open.base}/api/stream?uuid=${uuidOf(3)}`)).status, 415);
+    open.server.close();
+  });
+
+  it('caps streams per client and overall', async () => {
+    const { server, base } = await startRelay({ maxPerClient: 1, maxStreams: 2 });
+    const first = new AbortController();
+    const a = await fetch(`${base}/api/stream?uuid=${uuidOf(1)}`, { signal: first.signal, headers: { 'X-Real-IP': '203.0.113.1' } });
+    assert.equal(a.status, 200);
+    const b = await fetch(`${base}/api/stream?uuid=${uuidOf(1)}`, { headers: { 'X-Real-IP': '203.0.113.1' } });
+    assert.equal(b.status, 429);
+
+    const second = new AbortController();
+    const c = await fetch(`${base}/api/stream?uuid=${uuidOf(1)}`, { signal: second.signal, headers: { 'X-Real-IP': '203.0.113.2' } });
+    assert.equal(c.status, 200);
+    const d = await fetch(`${base}/api/stream?uuid=${uuidOf(1)}`, { headers: { 'X-Real-IP': '203.0.113.3' } });
+    assert.equal(d.status, 503);
+
+    first.abort();
+    second.abort();
+    server.close();
   });
 });
