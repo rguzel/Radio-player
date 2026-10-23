@@ -3,6 +3,8 @@ import React from 'react';
 export interface NavItem<T extends string> {
   id: T;
   label: string;
+  /** Shorter label for the bar when `label` is too long for five columns. */
+  shortLabel?: string;
   icon: React.ReactNode;
 }
 
@@ -27,6 +29,7 @@ export function BottomNav<T extends string>({ items, active, onSelect }: {
             <li key={item.id}>
               <button
                 onClick={() => onSelect(item.id)}
+                aria-label={item.label}
                 aria-current={isActive ? 'page' : undefined}
                 className={`w-full h-full flex flex-col items-center justify-center gap-0.5 text-[11px] font-semibold transition-colors ${
                   isActive ? 'text-accent' : 'text-slate-500 active:text-slate-300'
@@ -35,7 +38,7 @@ export function BottomNav<T extends string>({ items, active, onSelect }: {
                 <span className={`flex items-center justify-center w-12 h-7 rounded-full transition-colors ${isActive ? 'bg-accent/15' : ''}`}>
                   {item.icon}
                 </span>
-                <span className="truncate max-w-full px-1">{item.label}</span>
+                <span className="truncate max-w-full px-1">{item.shortLabel ?? item.label}</span>
               </button>
             </li>
           );

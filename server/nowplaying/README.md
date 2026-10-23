@@ -10,8 +10,9 @@ A small Node service with these endpoints for the web player:
   play `http://` audio on the `https://` site (mixed content). The Android app
   isn't affected, which is why those stations work there.
 - **`/api/plays`**: play counts from Guzel Radio's own listeners, for the
-  "Most Played" tab (today / this week / all time). Radio Browser only
-  exposes clicks for the last 24 hours.
+  "Most Played" tab (today / this week / all time), and per listener country,
+  for the "Listeners" tab. Radio Browser only exposes clicks for the last 24
+  hours.
 
 ```
 GET /api/nowplaying?uuid=<Radio Browser station uuid>
@@ -30,12 +31,25 @@ GET /api/stream?uuid=<Radio Browser station uuid>
 POST /api/plays?uuid=<Radio Browser station uuid>
 
 204 counted (at most once per listener IP per station every 30 min)
+    the listener's country is taken from the X-Country request header
 
 GET /api/plays/top?period=day|week|all&limit=50
 
 200 { "period": "day", "stations": [{ "uuid": "...", "plays": 12 }] }
     day = rolling 24 h, week = rolling 7 days, all = since the service started counting
+
+GET /api/plays/countries?period=day|week|all
+
+200 { "period": "day", "countries": [{ "country": "TR", "plays": 31 }, { "country": "XX", "plays": 2 }] }
+    ISO 3166 alpha-2 codes; "XX" = unknown (no header, Tor, or not via Cloudflare)
 ```
+
+**Listener countries.** The backend does no IP geolocation itself. Cloudflare
+sends each request's country in `CF-IPCountry`, and nginx passes it on as
+`X-Country`, only for requests that really came through Cloudflare (see the
+nginx config below), so it can't be forged by connecting to the origin
+directly. Only per-country totals are stored; listener addresses are kept in
+memory for the duplicate check and never written to disk.
 
 **Play stats storage.** Counts live in memory and are written to a small JSON
 file every minute and on shutdown, via a temp file and rename, so a crash
@@ -130,7 +144,21 @@ picks it over that one.
 # in the http {} block
 limit_req_zone $binary_remote_addr zone=nowplaying:10m rate=30r/m;
 
-# in the server {} block
+# Listener country for /api/plays: Cloudflare's CF-IPCountry, but only when the
+# connection really came from Cloudflare ($realip_remote_addr is the peer
+# before real_ip rewrote $remote_addr). The .geo file lists Cloudflare's ranges
+# (https://www.cloudflare.com/ips/), one "<cidr> 1;" per line.
+geo $realip_remote_addr $via_cloudflare {
+    default 0;
+    include /etc/nginx/snippets/cloudflare-ips.geo;
+}
+map $via_cloudflare $listener_country {
+    default "";
+    1       $http_cf_ipcountry;
+}
+
+# in the server {} block (behind Cloudflare, restore the real client address
+# first: set_real_ip_from <Cloudflare ranges>; real_ip_header CF-Connecting-IP;)
 location = /api/nowplaying {
     limit_req zone=nowplaying burst=10 nodelay;
     proxy_pass http://127.0.0.1:3100;
@@ -140,12 +168,13 @@ location = /api/nowplaying {
     proxy_read_timeout 15s;
 }
 
-# Play stats: POST /api/plays and GET /api/plays/top
+# Play stats: POST /api/plays, GET /api/plays/top and /api/plays/countries
 location ^~ /api/plays {
     limit_req zone=nowplaying burst=10 nodelay;
     proxy_pass http://127.0.0.1:3100;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Country $listener_country;   # empty = not sent = unknown
     proxy_read_timeout 15s;
 }
 

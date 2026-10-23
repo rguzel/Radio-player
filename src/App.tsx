@@ -16,14 +16,17 @@ import {
   Sun,
   AlertCircle,
   BarChart3,
+  MapPin,
 } from 'lucide-react';
 import { RadioStation } from './types';
 import { RadioService, uniqueStations } from './services/radioService';
 import { getMoodTags } from './services/moodService';
 import { PlayPeriod, PlayStatsService } from './services/playStatsService';
 import { useFavorites } from './hooks/useFavorites';
+import { useListenerCountries } from './hooks/useListenerCountries';
 import { useNowPlaying } from './hooks/useNowPlaying';
 import { useRadioPlayer } from './hooks/useRadioPlayer';
+import { ListenerCountries } from './components/ListenerCountries';
 import { NowPlayingPanel } from './components/NowPlayingPanel';
 import { Equalizer } from './components/Equalizer';
 import { BottomNav, NavItem } from './components/BottomNav';
@@ -44,7 +47,7 @@ const MOODS = [
 const MOOD_TAG_COUNT = 3;
 const MOOD_TAG_COUNT_IN_COUNTRY = Infinity;
 
-type Tab = 'trending' | 'search' | 'favorites' | 'most';
+type Tab = 'trending' | 'search' | 'favorites' | 'most' | 'listeners';
 
 const PLAY_PERIODS: { id: PlayPeriod; label: string }[] = [
   { id: 'day', label: 'Today' },
@@ -109,6 +112,7 @@ export default function App() {
     PlayStatsService.recordPlay(station.stationuuid).catch(() => {});
   });
   const lastVolumeRef = useRef(player.volume || 0.8);
+  const listeners = useListenerCountries(playPeriod, activeTab === 'listeners');
 
   // Only the most recent request may update the list; starting a new one
   // cancels the previous, so a slow response can't overwrite a newer one.
@@ -146,6 +150,17 @@ export default function App() {
     setSelectedCountry('');
     setPlayPeriod(period);
     loadStations(fetchMostPlayed(period));
+  };
+
+  const showListeners = () => {
+    setActiveTab('listeners');
+    setActiveMood(null);
+    setSelectedCountry('');
+  };
+
+  const selectPeriod = (period: PlayPeriod) => {
+    if (activeTab === 'most') showMostPlayed(period);
+    else setPlayPeriod(period);
   };
 
   const showTrending = () => {
@@ -190,6 +205,7 @@ export default function App() {
   const selectTab = (tab: Tab) => {
     if (tab === 'trending') showTrending();
     else if (tab === 'most') showMostPlayed(playPeriod);
+    else if (tab === 'listeners') showListeners();
     else {
       setActiveTab(tab);
       if (tab === 'favorites') setActiveMood(null);
@@ -247,7 +263,8 @@ export default function App() {
 
   const tabs: NavItem<Tab>[] = [
     { id: 'trending', label: 'Trending', icon: <TrendingUp size={20} /> },
-    { id: 'most', label: 'Most Played', icon: <BarChart3 size={20} /> },
+    { id: 'most', label: 'Most Played', shortLabel: 'Charts', icon: <BarChart3 size={20} /> },
+    { id: 'listeners', label: 'Listeners', icon: <MapPin size={20} /> },
     { id: 'favorites', label: 'Favorites', icon: <Heart size={20} /> },
     { id: 'search', label: 'Discover', icon: <Compass size={20} /> },
   ];
@@ -279,6 +296,12 @@ export default function App() {
         <div className="lg:hidden">
           <CountryPicker value={selectedCountry} onChange={handleCountryFilter} compact />
         </div>
+        <a
+          href="/privacy-web.html"
+          className="hidden lg:inline text-[10px] font-bold uppercase tracking-[0.2em] text-slate-600 hover:text-slate-300 transition-colors"
+        >
+          Privacy
+        </a>
       </header>
 
       <div className="max-w-[1480px] mx-auto w-full flex-1 lg:grid lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-8 lg:items-start">
@@ -351,12 +374,12 @@ export default function App() {
 
         <h2 className="lg:hidden text-base font-bold text-white mb-2 px-0.5 truncate">{sectionTitle}</h2>
 
-        {activeTab === 'most' && (
-          <div className="flex items-center gap-2 mb-3 lg:mb-6 lg:-mt-2 overflow-x-auto no-scrollbar -mx-3 px-3 sm:mx-0 sm:px-0" role="group" aria-label="Most played period">
+        {(activeTab === 'most' || activeTab === 'listeners') && (
+          <div className="flex items-center gap-2 mb-3 lg:mb-6 lg:-mt-2 overflow-x-auto no-scrollbar -mx-3 px-3 sm:mx-0 sm:px-0" role="group" aria-label="Statistics period">
             {PLAY_PERIODS.map(period => (
               <button
                 key={period.id}
-                onClick={() => showMostPlayed(period.id)}
+                onClick={() => selectPeriod(period.id)}
                 aria-pressed={playPeriod === period.id}
                 className={`shrink-0 h-9 px-4 rounded-full text-xs font-bold uppercase tracking-wider border transition-colors ${
                   playPeriod === period.id
@@ -372,8 +395,34 @@ export default function App() {
         )}
 
         {/* Station List */}
-        <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-2 sm:gap-3 lg:gap-5 lg:pr-1" aria-busy={showListLoading}>
-          {showListLoading ? (
+        <div
+          className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-2 sm:gap-3 lg:gap-5 lg:pr-1"
+          aria-busy={activeTab === 'listeners' ? listeners.isLoading : showListLoading}
+        >
+          {activeTab === 'listeners' ? (
+            listeners.isLoading ? (
+              <StatusPanel
+                icon={<div className="w-8 h-8 rounded-full border-2 border-accent/20 border-t-accent animate-spin" />}
+                title="Tuning in"
+                message="Loading listener statistics..."
+              />
+            ) : listeners.error ? (
+              <StatusPanel
+                icon={<AlertCircle size={32} className="text-red-400/70" />}
+                title="Signal lost"
+                message={listeners.error}
+                action={{ label: 'Try again', onClick: listeners.reload }}
+              />
+            ) : listeners.countries.length === 0 ? (
+              <StatusPanel
+                icon={<MapPin size={32} className="text-slate-700" />}
+                title="No listeners yet"
+                message={`Nobody has listened ${PLAY_PERIODS.find(p => p.id === playPeriod)?.label.toLowerCase() ?? ''} yet. Countries show up here as people start listening.`}
+              />
+            ) : (
+              <ListenerCountries countries={listeners.countries} />
+            )
+          ) : showListLoading ? (
             <StatusPanel
               icon={<div className="w-8 h-8 rounded-full border-2 border-accent/20 border-t-accent animate-spin" />}
               title="Tuning in"
@@ -415,6 +464,9 @@ export default function App() {
             </AnimatePresence>
           )}
         </div>
+        <a href="/privacy-web.html" className="lg:hidden self-center mt-6 py-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-600">
+          Privacy
+        </a>
       </main>
 
       {/* Now Playing side panel */}

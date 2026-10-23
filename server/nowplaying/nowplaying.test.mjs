@@ -351,6 +351,51 @@ describe('play stats', () => {
     assert.deepEqual(stats.top('all'), [{ uuid: B, plays: 3 }, { uuid: A, plays: 1 }]);
   });
 
+  it('counts plays per listener country, with unknown and odd codes as XX', () => {
+    let clock = 1_000 * HOUR;
+    const stats = createPlayStats({ now: () => clock });
+    stats.record(A, 'ip1', 'TR');
+    stats.record(B, 'ip1', 'TR');
+    stats.record(A, 'ip1', 'TR');          // duplicate: not counted for the country either
+    stats.record(A, 'ip2', 'ca');
+    stats.record(A, 'ip3');                // no header
+    stats.record(A, 'ip4', 'T1');          // Cloudflare's Tor code
+    stats.record(A, 'ip5', '<script>');
+    assert.deepEqual(stats.topCountries('day'), [
+      { country: 'XX', plays: 3 },
+      { country: 'TR', plays: 2 },
+      { country: 'CA', plays: 1 },
+    ]);
+    clock += 2 * 24 * HOUR;
+    stats.record(B, 'ip6', 'DE');
+    assert.deepEqual(stats.topCountries('day'), [{ country: 'DE', plays: 1 }]);
+    assert.equal(stats.topCountries('week').length, 4);
+    assert.equal(stats.topCountries('all').reduce((sum, c) => sum + c.plays, 0), 7);
+  });
+
+  it('loads files saved before country counts existed', async () => {
+    const fs = await import('node:fs/promises');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'plays-'));
+    const file = path.join(dir, 'plays.json');
+    const clock = 1_000 * HOUR;
+    await fs.writeFile(file, JSON.stringify({ version: 1, totals: { [A]: 2 }, hours: { 1000: { [A]: 2 } } }));
+
+    const stats = createPlayStats({ file, now: () => clock });
+    await stats.load();
+    assert.deepEqual(stats.top('day'), [{ uuid: A, plays: 2 }]);
+    assert.deepEqual(stats.topCountries('day'), []);
+    stats.record(B, 'ip1', 'TR');
+    await stats.save();
+
+    const reloaded = createPlayStats({ file, now: () => clock });
+    await reloaded.load();
+    assert.deepEqual(reloaded.topCountries('all'), [{ country: 'TR', plays: 1 }]);
+    assert.ok(!(await fs.readFile(file, 'utf8')).includes('ip1'), 'listener addresses are not saved');
+    await fs.rm(dir, { recursive: true });
+  });
+
   it('persists to disk and survives a corrupt file', async () => {
     const fs = await import('node:fs/promises');
     const os = await import('node:os');
@@ -393,6 +438,16 @@ describe('play stats', () => {
     assert.equal(top.status, 200);
     assert.deepEqual(await top.json(), { period: 'week', stations: [{ uuid: A, plays: 1 }] });
     assert.equal((await fetch(`${base}/api/plays/top?period=constructor`)).status, 400);
+
+    await fetch(`${base}/api/plays?uuid=${A}`, { method: 'POST', headers: { 'X-Real-IP': '203.0.113.10', 'X-Country': 'TR' } });
+    const countries = await fetch(`${base}/api/plays/countries?period=day`);
+    assert.equal(countries.status, 200);
+    assert.deepEqual(await countries.json(), {
+      period: 'day',
+      countries: [{ country: 'TR', plays: 1 }, { country: 'XX', plays: 1 }],
+    });
+    assert.equal((await fetch(`${base}/api/plays/countries?period=year`)).status, 400);
+    assert.equal((await fetch(`${base}/api/plays/countries`, { method: 'POST' })).status, 405);
     assert.equal((await fetch(`${base}/api/stream?uuid=${A}`)).status, 404, 'relay disabled when not configured');
     server.close();
   });
