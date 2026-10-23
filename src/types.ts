@@ -8,6 +8,8 @@ export interface RadioStation {
   favicon: string;
   tags: string;
   country: string;
+  /** ISO 3166-1 alpha-2, e.g. "CA" (may be empty). */
+  countrycode?: string;
   language: string;
   votes: number;
   clickcount: number;
