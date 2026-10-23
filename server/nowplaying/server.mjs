@@ -12,9 +12,14 @@
 //
 //   POST /api/plays?uuid=<Radio Browser station uuid>
 //   204 play counted (at most once per listener per station every 30 min)
+//   The listener's country comes from nginx's X-Country (Cloudflare's CF-IPCountry).
 //
 //   GET /api/plays/top?period=day|week|all&limit=50
 //   200 { period, stations: [{ uuid, plays }] }   most played by Guzel Radio listeners
+//
+//   GET /api/plays/countries?period=day|week|all
+//   200 { period, countries: [{ country, plays }] }   plays per listener country
+//       (ISO 3166 alpha-2; "XX" = unknown)
 //
 // Endpoints take a station uuid rather than a stream URL so they can't be used
 // to make this server fetch arbitrary addresses.
@@ -52,13 +57,17 @@ export function createServer(service, relay, plays) {
       '/api/stream': { methods: ['GET', 'HEAD'], enabled: Boolean(relay) },
       '/api/plays': { methods: ['POST'], enabled: Boolean(plays) },
       '/api/plays/top': { methods: ['GET', 'HEAD'], enabled: Boolean(plays) },
+      '/api/plays/countries': { methods: ['GET', 'HEAD'], enabled: Boolean(plays) },
     }[url.pathname];
     if (!route?.enabled) return send(res, 404, { error: 'Not found' });
     if (!route.methods.includes(req.method ?? '')) return send(res, 405, { error: 'Method not allowed' });
 
-    if (url.pathname === '/api/plays/top') {
+    if (url.pathname === '/api/plays/top' || url.pathname === '/api/plays/countries') {
       const period = url.searchParams.get('period') ?? 'day';
       if (!Object.hasOwn(PERIOD_HOURS, period)) return send(res, 400, { error: 'period must be day, week or all' });
+      if (url.pathname === '/api/plays/countries') {
+        return send(res, 200, { period, countries: plays.topCountries(period) }, 'public, max-age=60');
+      }
       const limit = Math.min(100, Math.max(1, Number(url.searchParams.get('limit')) || 50));
       return send(res, 200, { period, stations: plays.top(period, limit) }, 'public, max-age=60');
     }
@@ -70,7 +79,7 @@ export function createServer(service, relay, plays) {
 
     if (url.pathname === '/api/plays') {
       // Duplicates are ignored silently; the caller doesn't need to know.
-      plays.record(uuid, clientAddress(req));
+      plays.record(uuid, clientAddress(req), req.headers['x-country']);
       res.writeHead(204, { 'Cache-Control': 'no-store' });
       return res.end();
     }

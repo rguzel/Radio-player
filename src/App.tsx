@@ -16,14 +16,17 @@ import {
   Sun,
   AlertCircle,
   BarChart3,
+  MapPin,
 } from 'lucide-react';
 import { RadioStation } from './types';
 import { RadioService, uniqueStations } from './services/radioService';
 import { getMoodTags } from './services/moodService';
 import { PlayPeriod, PlayStatsService } from './services/playStatsService';
 import { useFavorites } from './hooks/useFavorites';
+import { useListenerCountries } from './hooks/useListenerCountries';
 import { useNowPlaying } from './hooks/useNowPlaying';
 import { useRadioPlayer } from './hooks/useRadioPlayer';
+import { ListenerCountries } from './components/ListenerCountries';
 import { NowPlayingPanel } from './components/NowPlayingPanel';
 import { Equalizer } from './components/Equalizer';
 import { fallbackToInitials, primaryTag, stationArtwork } from './utils/artwork';
@@ -57,7 +60,7 @@ const COUNTRIES = [
   { label: 'United States', value: 'United States' },
 ];
 
-type Tab = 'trending' | 'search' | 'favorites' | 'most';
+type Tab = 'trending' | 'search' | 'favorites' | 'most' | 'listeners';
 
 const PLAY_PERIODS: { id: PlayPeriod; label: string }[] = [
   { id: 'day', label: 'Today' },
@@ -121,6 +124,7 @@ export default function App() {
     PlayStatsService.recordPlay(station.stationuuid).catch(() => {});
   });
   const lastVolumeRef = useRef(player.volume || 0.8);
+  const listeners = useListenerCountries(playPeriod, activeTab === 'listeners');
 
   // Only the most recent request may update the list; starting a new one
   // cancels the previous, so a slow response can't overwrite a newer one.
@@ -158,6 +162,17 @@ export default function App() {
     setSelectedCountry('');
     setPlayPeriod(period);
     loadStations(fetchMostPlayed(period));
+  };
+
+  const showListeners = () => {
+    setActiveTab('listeners');
+    setActiveMood(null);
+    setSelectedCountry('');
+  };
+
+  const selectPeriod = (period: PlayPeriod) => {
+    if (activeTab === 'most') showMostPlayed(period);
+    else setPlayPeriod(period);
   };
 
   const showTrending = () => {
@@ -326,6 +341,12 @@ export default function App() {
               label="Most Played"
             />
             <TabButton
+              active={activeTab === 'listeners'}
+              onClick={showListeners}
+              icon={<MapPin size={16} />}
+              label="Listeners"
+            />
+            <TabButton
               active={activeTab === 'favorites'}
               onClick={() => { setActiveTab('favorites'); setActiveMood(null); }}
               icon={<Heart size={16} />}
@@ -351,12 +372,12 @@ export default function App() {
           </select>
         </div>
 
-        {activeTab === 'most' && (
-          <div className="flex items-center gap-2 mb-6 -mt-2" role="group" aria-label="Most played period">
+        {(activeTab === 'most' || activeTab === 'listeners') && (
+          <div className="flex items-center gap-2 mb-6 -mt-2" role="group" aria-label="Statistics period">
             {PLAY_PERIODS.map(period => (
               <button
                 key={period.id}
-                onClick={() => showMostPlayed(period.id)}
+                onClick={() => selectPeriod(period.id)}
                 aria-pressed={playPeriod === period.id}
                 className={`px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider border transition-colors ${
                   playPeriod === period.id
@@ -372,8 +393,34 @@ export default function App() {
         )}
 
         {/* Station List */}
-        <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-5 pr-1 pb-32 lg:pb-8" aria-busy={showListLoading}>
-          {showListLoading ? (
+        <div
+          className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-5 pr-1 pb-32 lg:pb-8"
+          aria-busy={activeTab === 'listeners' ? listeners.isLoading : showListLoading}
+        >
+          {activeTab === 'listeners' ? (
+            listeners.isLoading ? (
+              <StatusPanel
+                icon={<div className="w-8 h-8 rounded-full border-2 border-accent/20 border-t-accent animate-spin" />}
+                title="Tuning in"
+                message="Loading listener statistics..."
+              />
+            ) : listeners.error ? (
+              <StatusPanel
+                icon={<AlertCircle size={32} className="text-red-400/70" />}
+                title="Signal lost"
+                message={listeners.error}
+                action={{ label: 'Try again', onClick: listeners.reload }}
+              />
+            ) : listeners.countries.length === 0 ? (
+              <StatusPanel
+                icon={<MapPin size={32} className="text-slate-700" />}
+                title="No listeners yet"
+                message={`Nobody has listened ${PLAY_PERIODS.find(p => p.id === playPeriod)?.label.toLowerCase() ?? ''} yet. Countries show up here as people start listening.`}
+              />
+            ) : (
+              <ListenerCountries countries={listeners.countries} />
+            )
+          ) : showListLoading ? (
             <StatusPanel
               icon={<div className="w-8 h-8 rounded-full border-2 border-accent/20 border-t-accent animate-spin" />}
               title="Tuning in"
