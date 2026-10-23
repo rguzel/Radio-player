@@ -34,7 +34,9 @@ const MOODS = [
 ];
 
 // How many of a mood's tags to query; results are merged and ranked by plays.
+// A single country has far fewer stations per tag, so query all of them there.
 const MOOD_TAG_COUNT = 3;
+const MOOD_TAG_COUNT_IN_COUNTRY = Infinity;
 
 const COUNTRIES = [
   { label: 'Canada', value: 'Canada' },
@@ -65,10 +67,10 @@ const fetchTrending: StationFetcher = async signal => {
   return uniqueStations([...ca, ...tr, ...top]);
 };
 
-const fetchMood = (mood: string): StationFetcher => async signal => {
-  const tags = getMoodTags(mood).slice(0, MOOD_TAG_COUNT);
+const fetchMood = (mood: string, country?: string): StationFetcher => async signal => {
+  const tags = getMoodTags(mood).slice(0, country ? MOOD_TAG_COUNT_IN_COUNTRY : MOOD_TAG_COUNT);
   // One unavailable tag shouldn't empty the whole mood.
-  const results = await Promise.allSettled(tags.map(tag => RadioService.getStationsByTag(tag, 20, signal)));
+  const results = await Promise.allSettled(tags.map(tag => RadioService.getStationsByTag(tag, 20, country, signal)));
   if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
   const fulfilled = results.filter((r): r is PromiseFulfilledResult<RadioStation[]> => r.status === 'fulfilled');
   if (fulfilled.length === 0) throw (results[0] as PromiseRejectedResult).reason;
@@ -139,10 +141,16 @@ export default function App() {
   const handleMoodSelect = (mood: string) => {
     setActiveMood(mood);
     setActiveTab('search');
-    loadStations(fetchMood(mood));
+    loadStations(fetchMood(mood, selectedCountry || undefined));
   };
 
   const handleCountryFilter = (country: string) => {
+    // With a mood showing, the country narrows (or widens) that mood.
+    if (activeMood && activeTab === 'search') {
+      setSelectedCountry(country);
+      loadStations(fetchMood(activeMood, country || undefined));
+      return;
+    }
     if (!country) {
       showTrending();
       return;
@@ -286,7 +294,9 @@ export default function App() {
               title={activeTab === 'favorites' ? 'No favorites yet' : 'Aura silence'}
               message={activeTab === 'favorites'
                 ? 'Tap the heart on any station to save it here.'
-                : 'No stations match your current frequency. Try another search.'}
+                : activeMood && selectedCountry
+                  ? `No ${MOODS.find(m => m.id === activeMood)?.label ?? ''} stations found in ${selectedCountry}. Try another mood or country.`
+                  : 'No stations match your current frequency. Try another search.'}
             />
           ) : (
             <AnimatePresence mode="popLayout">
