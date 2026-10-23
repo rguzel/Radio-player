@@ -85,7 +85,9 @@ src/
 │   ├── NowPlayingPanel.tsx  # Track, controls, equalizer and station details
 │   ├── ListenerCountries.tsx # Listeners tab: plays per country
 │   ├── Equalizer.tsx        # Canvas equalizer (real spectrum or simulated)
-│   └── StationVotes.tsx     # Vote count + vote button
+│   ├── StationVotes.tsx     # Vote count + vote button
+│   ├── CountryPicker.tsx    # Searchable country combobox with flags
+│   └── BottomNav.tsx        # Bottom tab bar on phones/tablets
 ├── hooks/
 │   ├── useRadioPlayer.ts    # Playback engine, skip queue, volume, Media Session
 │   ├── useNowPlaying.ts     # Polls /api/nowplaying for the current track
