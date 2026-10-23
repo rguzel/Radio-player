@@ -10,6 +10,8 @@ A sleek, dark-themed internet radio player with 50,000+ stations worldwide, mood
 - **Search** — search stations by name globally or scoped to a selected country
 - **Country filter** — browse by country from the dropdown; Canada and Türkiye are pinned at the top
 - **Moods** — four presets (Focus, Chill, Night, Vibe) map to genre tags; the top tags are queried and merged by popularity
+- **Most Played** — Today / This week / All time rankings from Guzel Radio's own listeners (see [server/nowplaying](server/nowplaying/README.md))
+- **Votes** — vote for a station from the Now Playing panel; plays are also reported to Radio Browser so popular stations rank higher
 - **Favorites** — heart any station to save it; persisted in browser `localStorage` (survives page reloads, device-local)
 - **Media Session API** — lock screen / OS media controls: play, pause, next, previous station
 - **Volume control** — remembered between visits
@@ -79,13 +81,15 @@ src/
 ├── types.ts                 # RadioStation interface
 ├── components/
 │   ├── NowPlayingPanel.tsx  # Track, controls, equalizer and station details
-│   └── Equalizer.tsx        # Canvas equalizer (real spectrum or simulated)
+│   ├── Equalizer.tsx        # Canvas equalizer (real spectrum or simulated)
+│   └── StationVotes.tsx     # Vote count + vote button
 ├── hooks/
 │   ├── useRadioPlayer.ts    # Playback engine, skip queue, volume, Media Session
 │   ├── useNowPlaying.ts     # Polls /api/nowplaying for the current track
 │   └── useFavorites.ts      # Favorites persisted to localStorage
 ├── services/
-│   ├── radioService.ts      # radio-browser.info API calls with mirror failover
+│   ├── radioService.ts      # radio-browser.info API calls with mirror failover, clicks, votes
+│   ├── playStatsService.ts  # /api/plays: record plays, most played rankings
 │   └── moodService.ts       # Mood → genre tag mapping (static, no external API call)
 └── utils/
     ├── artwork.ts           # Station artwork with local initials fallback

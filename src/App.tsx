@@ -15,10 +15,12 @@ import {
   Moon,
   Sun,
   AlertCircle,
+  BarChart3,
 } from 'lucide-react';
 import { RadioStation } from './types';
 import { RadioService, uniqueStations } from './services/radioService';
 import { getMoodTags } from './services/moodService';
+import { PlayPeriod, PlayStatsService } from './services/playStatsService';
 import { useFavorites } from './hooks/useFavorites';
 import { useNowPlaying } from './hooks/useNowPlaying';
 import { useRadioPlayer } from './hooks/useRadioPlayer';
@@ -55,7 +57,16 @@ const COUNTRIES = [
   { label: 'United States', value: 'United States' },
 ];
 
-type Tab = 'trending' | 'search' | 'favorites';
+type Tab = 'trending' | 'search' | 'favorites' | 'most';
+
+const PLAY_PERIODS: { id: PlayPeriod; label: string }[] = [
+  { id: 'day', label: 'Today' },
+  { id: 'week', label: 'This week' },
+  { id: 'all', label: 'All time' },
+];
+
+/** A station in the Most Played list, with its play count for the period. */
+type RankedStation = RadioStation & { plays?: number };
 type StationFetcher = (signal: AbortSignal) => Promise<RadioStation[]>;
 
 const fetchTrending: StationFetcher = async signal => {
@@ -66,6 +77,18 @@ const fetchTrending: StationFetcher = async signal => {
     RadioService.getTopStations(20, signal),
   ]);
   return uniqueStations([...ca, ...tr, ...top]);
+};
+
+// Most played by Guzel Radio listeners (server/nowplaying keeps the counts),
+// with station details from Radio Browser, in ranking order.
+const fetchMostPlayed = (period: PlayPeriod): StationFetcher => async signal => {
+  const ranking = await PlayStatsService.getMostPlayed(period, 50, signal);
+  const details = await RadioService.getStationsByUuids(ranking.map(r => r.uuid), signal);
+  const byUuid = new Map(details.map(station => [station.stationuuid, station]));
+  return ranking.flatMap(({ uuid, plays }): RankedStation[] => {
+    const station = byUuid.get(uuid);
+    return station ? [{ ...station, plays }] : [];
+  });
 };
 
 const fetchMood = (mood: string, country?: string): StationFetcher => async signal => {
@@ -90,7 +113,13 @@ export default function App() {
   const [selectedCountry, setSelectedCountry] = useState('');
 
   const { favorites, isFavorite, toggleFavorite } = useFavorites();
-  const player = useRadioPlayer();
+  const [playPeriod, setPlayPeriod] = useState<PlayPeriod>('day');
+  // Count each real start: in Radio Browser (popularity/trending) and in our
+  // own stats (Most Played). Both are fire-and-forget.
+  const player = useRadioPlayer(station => {
+    RadioService.reportClick(station.stationuuid).catch(() => {});
+    PlayStatsService.recordPlay(station.stationuuid).catch(() => {});
+  });
   const lastVolumeRef = useRef(player.volume || 0.8);
 
   // Only the most recent request may update the list; starting a new one
@@ -122,6 +151,14 @@ export default function App() {
     loadStations(fetchTrending);
     return () => requestRef.current?.abort();
   }, [loadStations]);
+
+  const showMostPlayed = (period: PlayPeriod) => {
+    setActiveTab('most');
+    setActiveMood(null);
+    setSelectedCountry('');
+    setPlayPeriod(period);
+    loadStations(fetchMostPlayed(period));
+  };
 
   const showTrending = () => {
     setActiveTab('trending');
@@ -206,6 +243,7 @@ export default function App() {
       onVolumeChange={player.setVolume}
       onToggleMute={toggleMute}
       onToggleFavorite={() => current && toggleFavorite(current)}
+      onVote={uuid => RadioService.vote(uuid)}
     />
   );
 
@@ -282,6 +320,12 @@ export default function App() {
               label="Trending"
             />
             <TabButton
+              active={activeTab === 'most'}
+              onClick={() => showMostPlayed(playPeriod)}
+              icon={<BarChart3 size={16} />}
+              label="Most Played"
+            />
+            <TabButton
               active={activeTab === 'favorites'}
               onClick={() => { setActiveTab('favorites'); setActiveMood(null); }}
               icon={<Heart size={16} />}
@@ -307,6 +351,26 @@ export default function App() {
           </select>
         </div>
 
+        {activeTab === 'most' && (
+          <div className="flex items-center gap-2 mb-6 -mt-2" role="group" aria-label="Most played period">
+            {PLAY_PERIODS.map(period => (
+              <button
+                key={period.id}
+                onClick={() => showMostPlayed(period.id)}
+                aria-pressed={playPeriod === period.id}
+                className={`px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider border transition-colors ${
+                  playPeriod === period.id
+                    ? 'bg-accent/10 border-accent/40 text-accent'
+                    : 'bg-white/5 border-white/5 text-slate-400 hover:text-slate-200 hover:border-white/10'
+                }`}
+              >
+                {period.label}
+              </button>
+            ))}
+            <span className="ml-2 text-[10px] text-slate-600 uppercase tracking-widest hidden sm:inline">By Guzel Radio listeners</span>
+          </div>
+        )}
+
         {/* Station List */}
         <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-5 pr-1 pb-32 lg:pb-8" aria-busy={showListLoading}>
           {showListLoading ? (
@@ -325,9 +389,11 @@ export default function App() {
           ) : visibleStations.length === 0 ? (
             <StatusPanel
               icon={<Radio size={32} className="text-slate-700" />}
-              title={activeTab === 'favorites' ? 'No favorites yet' : 'Aura silence'}
+              title={activeTab === 'favorites' ? 'No favorites yet' : activeTab === 'most' ? 'No plays yet' : 'Aura silence'}
               message={activeTab === 'favorites'
                 ? 'Tap the heart on any station to save it here.'
+                : activeTab === 'most'
+                  ? `Nothing has been played ${PLAY_PERIODS.find(p => p.id === playPeriod)?.label.toLowerCase() ?? ''} yet. Start listening and the most played stations will show up here.`
                 : activeMood && selectedCountry
                   ? `No ${MOODS.find(m => m.id === activeMood)?.label ?? ''} stations found in ${selectedCountry}. Try another mood or country.`
                   : 'No stations match your current frequency. Try another search.'}
@@ -343,6 +409,7 @@ export default function App() {
                   isFavorite={isFavorite(station.stationuuid)}
                   onPlay={() => player.play(station, visibleStations)}
                   onToggleFavorite={() => toggleFavorite(station)}
+                  plays={activeTab === 'most' ? (station as RankedStation).plays : undefined}
                 />
               ))}
             </AnimatePresence>
@@ -446,12 +513,14 @@ interface StationCardProps {
   isCurrent: boolean;
   isPlaying: boolean;
   isFavorite: boolean;
+  /** Play count shown in the Most Played list. */
+  plays?: number;
   onPlay: () => void;
   onToggleFavorite: () => void;
 }
 
 const StationCard = React.forwardRef<HTMLDivElement, StationCardProps>(function StationCard(
-  { station, isCurrent, isPlaying, isFavorite, onPlay, onToggleFavorite },
+  { station, isCurrent, isPlaying, isFavorite, plays, onPlay, onToggleFavorite },
   ref
 ) {
   return (
@@ -497,7 +566,9 @@ const StationCard = React.forwardRef<HTMLDivElement, StationCardProps>(function 
           <h3 className="font-bold truncate text-[14px] text-slate-100 group-hover:text-accent transition-colors duration-300">{station.name}</h3>
           <div className="flex items-center gap-2 mt-1">
             <span className="text-[10px] text-slate-500 font-medium truncate uppercase tracking-widest">
-              {primaryTag(station) ?? 'broadcast'}
+              {plays !== undefined
+                ? `${plays.toLocaleString()} ${plays === 1 ? 'play' : 'plays'}`
+                : primaryTag(station) ?? 'broadcast'}
             </span>
           </div>
         </div>

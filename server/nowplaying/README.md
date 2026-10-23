@@ -1,6 +1,6 @@
-# Web player backend: now playing + HTTPS stream relay
+# Web player backend: now playing, HTTPS stream relay, play stats
 
-A small Node service with two endpoints for the web player:
+A small Node service with these endpoints for the web player:
 
 - **`/api/nowplaying`**: the current track. Browsers can't read a stream's
   in-band (ICY) metadata: it needs an `Icy-MetaData: 1` request header most
@@ -9,6 +9,9 @@ A small Node service with two endpoints for the web player:
 - **`/api/stream`**: an HTTPS relay for HTTP-only stations. Browsers refuse to
   play `http://` audio on the `https://` site (mixed content). The Android app
   isn't affected, which is why those stations work there.
+- **`/api/plays`**: play counts from Guzel Radio's own listeners, for the
+  "Most Played" tab (today / this week / all time). Radio Browser only
+  exposes clicks for the last 24 hours.
 
 ```
 GET /api/nowplaying?uuid=<Radio Browser station uuid>
@@ -23,7 +26,24 @@ GET /api/stream?uuid=<Radio Browser station uuid>
 302 redirect to the station's own URL if it already serves https://
 400 invalid uuid · 404 unknown station · 415 playlist / non-audio
 429 >3 streams from one client · 502 station unreachable · 503 relay full
+
+POST /api/plays?uuid=<Radio Browser station uuid>
+
+204 counted (at most once per listener IP per station every 30 min)
+
+GET /api/plays/top?period=day|week|all&limit=50
+
+200 { "period": "day", "stations": [{ "uuid": "...", "plays": 12 }] }
+    day = rolling 24 h, week = rolling 7 days, all = since the service started counting
 ```
+
+**Play stats storage.** Counts live in memory and are written to a small JSON
+file every minute and on shutdown, via a temp file and rename, so a crash
+can't leave a half-written file. The file goes in systemd's
+`StateDirectory=` (`/var/lib/radio-nowplaying/plays.json`), or wherever
+`PLAYS_FILE` points. A corrupt file is moved aside, not overwritten.
+Duplicate plays are detected by `X-Real-IP`, so nginx must pass the real
+client address (behind Cloudflare: `real_ip_header CF-Connecting-IP`).
 
 **Relay bandwidth.** Each relayed listener costs the station's bitrate twice,
 in and out: about 56 MB/hour each way at 128 kbps. Only HTTP-only stations use
@@ -60,6 +80,7 @@ npm start           # listens on 127.0.0.1:3100
 | `HOST` | `127.0.0.1` | Listen address (keep it local; nginx fronts it) |
 | `RELAY_MAX_STREAMS` | `50` | Concurrent relayed streams, all listeners |
 | `RELAY_MAX_PER_CLIENT` | `3` | Concurrent relayed streams per listener IP (from `X-Real-IP`) |
+| `PLAYS_FILE` | `$STATE_DIRECTORY/plays.json` | Where play counts are saved; unset with no StateDirectory = not persisted |
 | `ALLOW_PRIVATE_NETWORKS` | unset | `1` disables the private-address block (local testing only) |
 
 ## Deploy next to the site
@@ -83,6 +104,8 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
+# Writable /var/lib/radio-nowplaying for play stats (exported as STATE_DIRECTORY)
+StateDirectory=radio-nowplaying
 
 [Install]
 WantedBy=multi-user.target
@@ -114,6 +137,15 @@ location = /api/nowplaying {
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_read_timeout 15s;
+}
+
+# Play stats: POST /api/plays and GET /api/plays/top
+location ^~ /api/plays {
+    limit_req zone=nowplaying burst=10 nodelay;
+    proxy_pass http://127.0.0.1:3100;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
     proxy_read_timeout 15s;
 }
 

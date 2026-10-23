@@ -10,6 +10,7 @@ import { createNowPlayingService } from './nowplaying.mjs';
 import { createServer } from './server.mjs';
 import { openStream } from './stream-client.mjs';
 import { createStreamRelay } from './stream-relay.mjs';
+import { createPlayStats } from './plays.mjs';
 
 /** Builds an ICY body: one metaint of audio followed by each metadata block. */
 function icyBody(metaInt, ...blocks) {
@@ -314,6 +315,85 @@ describe('stream relay', () => {
 
     first.abort();
     second.abort();
+    server.close();
+  });
+});
+
+describe('play stats', () => {
+  const HOUR = 60 * 60_000;
+  const A = '00000000-0000-4000-8000-00000000000a';
+  const B = '00000000-0000-4000-8000-00000000000b';
+
+  it('counts once per listener per station within the dedupe window', () => {
+    let clock = 1_000 * HOUR;
+    const stats = createPlayStats({ now: () => clock });
+    assert.equal(stats.record(A, 'ip1'), true);
+    assert.equal(stats.record(A, 'ip1'), false, 'same listener again');
+    assert.equal(stats.record(A, 'ip2'), true, 'another listener');
+    assert.equal(stats.record(B, 'ip1'), true, 'another station');
+    clock += 31 * 60_000;
+    assert.equal(stats.record(A, 'ip1'), true, 'after the window');
+    assert.deepEqual(stats.top('day'), [{ uuid: A, plays: 3 }, { uuid: B, plays: 1 }]);
+  });
+
+  it('rolls plays out of the day and week windows but keeps all-time totals', () => {
+    let clock = 1_000 * HOUR;
+    const stats = createPlayStats({ now: () => clock });
+    stats.record(A, 'ip1');
+    clock += 2 * 24 * HOUR;              // 2 days later
+    stats.record(B, 'ip1');
+    stats.record(B, 'ip2');
+    assert.deepEqual(stats.top('day').map(s => s.uuid), [B]);
+    assert.deepEqual(stats.top('week'), [{ uuid: B, plays: 2 }, { uuid: A, plays: 1 }]);
+    clock += 7 * 24 * HOUR;              // 9 days after A's play
+    stats.record(B, 'ip3');
+    assert.deepEqual(stats.top('week'), [{ uuid: B, plays: 1 }]);
+    assert.deepEqual(stats.top('all'), [{ uuid: B, plays: 3 }, { uuid: A, plays: 1 }]);
+  });
+
+  it('persists to disk and survives a corrupt file', async () => {
+    const fs = await import('node:fs/promises');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'plays-'));
+    const file = path.join(dir, 'plays.json');
+    const clock = 1_000 * HOUR;
+
+    const first = createPlayStats({ file, now: () => clock });
+    first.record(A, 'ip1');
+    first.record(B, 'ip1');
+    first.record(B, 'ip2');
+    await first.save();
+
+    const second = createPlayStats({ file, now: () => clock });
+    await second.load();
+    assert.deepEqual(second.top('day'), [{ uuid: B, plays: 2 }, { uuid: A, plays: 1 }]);
+    assert.deepEqual(second.top('all'), second.top('day'));
+
+    await fs.writeFile(file, '{not json');
+    const third = createPlayStats({ file, now: () => clock });
+    await third.load();
+    assert.deepEqual(third.top('all'), []);
+    assert.ok((await fs.readdir(dir)).some(name => name.startsWith('plays.json.corrupt-')), 'corrupt file kept aside');
+    await fs.rm(dir, { recursive: true });
+  });
+
+  it('exposes record and top over HTTP', async () => {
+    const stats = createPlayStats();
+    const server = createServer({ get: async () => null }, null, stats);
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const base = `http://127.0.0.1:${server.address().port}`;
+
+    assert.equal((await fetch(`${base}/api/plays?uuid=${A}`, { method: 'POST', headers: { 'X-Real-IP': '203.0.113.9' } })).status, 204);
+    assert.equal((await fetch(`${base}/api/plays?uuid=${A}`, { method: 'POST', headers: { 'X-Real-IP': '203.0.113.9' } })).status, 204);
+    assert.equal((await fetch(`${base}/api/plays?uuid=${A}`)).status, 405, 'GET not allowed for recording');
+    assert.equal((await fetch(`${base}/api/plays?uuid=nope`, { method: 'POST' })).status, 400);
+
+    const top = await fetch(`${base}/api/plays/top?period=week`);
+    assert.equal(top.status, 200);
+    assert.deepEqual(await top.json(), { period: 'week', stations: [{ uuid: A, plays: 1 }] });
+    assert.equal((await fetch(`${base}/api/plays/top?period=constructor`)).status, 400);
+    assert.equal((await fetch(`${base}/api/stream?uuid=${A}`)).status, 404, 'relay disabled when not configured');
     server.close();
   });
 });

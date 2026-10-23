@@ -18,6 +18,7 @@ export interface PlayerState {
 }
 
 type StateUpdate = (update: (state: PlayerState) => PlayerState) => void;
+type StartListener = (station: RadioStation) => void;
 
 function loadVolume(): number {
   try {
@@ -94,11 +95,18 @@ class PlaybackEngine {
   private started = false;
   private current: RadioStation | null = null;
   private queue: RadioStation[] = [];
+  /** Whether onStart has fired for the current play() (not on rebuffering). */
+  private reported = false;
 
-  constructor(private readonly update: StateUpdate, private volume: number) {}
+  constructor(
+    private readonly update: StateUpdate,
+    private volume: number,
+    private readonly onStart: StartListener,
+  ) {}
 
   play(station: RadioStation, queue: RadioStation[] = this.queue) {
     this.current = station;
+    this.reported = false;
     this.queue = queue;
     this.update(s => ({ ...s, currentStation: station, isPlaying: true, isBuffering: true, error: null, queueSize: queue.length }));
     this.start(this.getAnalysed() ?? this.getPlain(), station);
@@ -174,6 +182,10 @@ class PlaybackEngine {
     audio.addEventListener('play', onActive(() => this.update(s => ({ ...s, isPlaying: true }))));
     audio.addEventListener('playing', onActive(() => {
       this.started = true;
+      if (!this.reported && this.current) {
+        this.reported = true;
+        this.onStart(this.current);
+      }
       this.update(s => ({ ...s, isPlaying: true, isBuffering: false, error: null }));
     }));
     audio.addEventListener('waiting', onActive(() => this.update(s => ({ ...s, isBuffering: true }))));
@@ -213,7 +225,14 @@ class PlaybackEngine {
   }
 }
 
-export function useRadioPlayer() {
+/**
+ * @param onStart called once each time a station actually starts playing
+ *   (audio flowing, not just requested), e.g. to count plays.
+ */
+export function useRadioPlayer(onStart?: StartListener) {
+  const onStartRef = useRef(onStart);
+  onStartRef.current = onStart;
+
   const [state, setState] = useState<PlayerState>(() => ({
     currentStation: null,
     isPlaying: false,
@@ -225,7 +244,9 @@ export function useRadioPlayer() {
   }));
 
   const engineRef = useRef<PlaybackEngine | null>(null);
-  if (!engineRef.current) engineRef.current = new PlaybackEngine(setState, state.volume);
+  if (!engineRef.current) {
+    engineRef.current = new PlaybackEngine(setState, state.volume, station => onStartRef.current?.(station));
+  }
   const engine = engineRef.current;
 
   useEffect(() => () => engine.dispose(), [engine]);

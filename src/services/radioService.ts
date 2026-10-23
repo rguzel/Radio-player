@@ -57,6 +57,25 @@ export class RadioService {
   static getStationsByCountry(country: string, limit = 50, signal?: AbortSignal): Promise<RadioStation[]> {
     return request(`stations/bycountry/${encodeURIComponent(country)}`, { ...LIST_DEFAULTS, limit }, signal);
   }
+
+  static getStationsByUuids(uuids: string[], signal?: AbortSignal): Promise<RadioStation[]> {
+    if (uuids.length === 0) return Promise.resolve([]);
+    return request('stations/byuuid', { uuids: uuids.join(',') }, signal);
+  }
+
+  /**
+   * Tells Radio Browser a listener started this station. Feeds its click
+   * counts and "trending" ranking; Radio Browser asks apps to send this on
+   * every play and counts at most one click per IP per station per day.
+   */
+  static async reportClick(uuid: string): Promise<void> {
+    await request(`url/${encodeURIComponent(uuid)}`, {});
+  }
+
+  /** Votes for a station. Radio Browser allows one vote per IP per station every 10 minutes. */
+  static vote(uuid: string): Promise<{ ok: boolean; message: string }> {
+    return request(`vote/${encodeURIComponent(uuid)}`, {});
+  }
 }
 
 /** Removes repeated stations (same uuid), keeping the first occurrence. */
