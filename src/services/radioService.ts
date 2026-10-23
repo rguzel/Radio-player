@@ -48,8 +48,10 @@ export class RadioService {
     return request('stations/search', { ...LIST_DEFAULTS, name: query, country, limit }, signal);
   }
 
-  static getStationsByTag(tag: string, limit = 50, signal?: AbortSignal): Promise<RadioStation[]> {
-    return request(`stations/bytag/${encodeURIComponent(tag)}`, { ...LIST_DEFAULTS, limit }, signal);
+  // `country` is a partial name match (Radio Browser stores names such as
+  // "The United Kingdom Of Great Britain And Northern Ireland").
+  static getStationsByTag(tag: string, limit = 50, country?: string, signal?: AbortSignal): Promise<RadioStation[]> {
+    return request('stations/search', { ...LIST_DEFAULTS, tag, country, limit }, signal);
   }
 
   static getStationsByCountry(country: string, limit = 50, signal?: AbortSignal): Promise<RadioStation[]> {
