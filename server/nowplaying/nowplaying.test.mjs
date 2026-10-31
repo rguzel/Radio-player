@@ -7,6 +7,7 @@ import {
   parseStreamTitle, readStreamTitle, splitTrack,
 } from './icy.mjs';
 import { createNowPlayingService } from './nowplaying.mjs';
+import { createStationsCache, normalizeRequest } from './stations-cache.mjs';
 import { createServer } from './server.mjs';
 import { openStream } from './stream-client.mjs';
 import { createStreamRelay } from './stream-relay.mjs';
@@ -450,5 +451,47 @@ describe('play stats', () => {
     assert.equal((await fetch(`${base}/api/plays/countries`, { method: 'POST' })).status, 405);
     assert.equal((await fetch(`${base}/api/stream?uuid=${A}`)).status, 404, 'relay disabled when not configured');
     server.close();
+  });
+});
+
+describe('stations cache', () => {
+  const ok = body => ({ ok: true, status: 200, text: async () => JSON.stringify(body) });
+  const req = (rest, params = {}) => normalizeRequest(rest, new URLSearchParams(params));
+
+  it('rejects unknown paths and parameters', () => {
+    assert.equal(req('stations/delete'), null);
+    assert.equal(req('stations/search', { url: 'http://evil' }), null);
+    assert.equal(req('stations/search', { limit: '5000' }), null);
+    assert.ok(req('stations/bycountry/T%C3%BCrkiye'.replace('%C3%BC', 'ü'), { limit: '100' }));
+  });
+
+  it('serves fresh cache, then stale copy when every mirror is down', async () => {
+    let t = 0, down = false, calls = 0;
+    const cache = createStationsCache({
+      freshMs: 1000, now: () => t,
+      fetchFn: async () => { calls++; if (down) throw new Error('down'); return ok([{ name: 'A' }]); },
+    });
+    const r = req('stations/search', { tagList: 'pop' });
+    assert.deepEqual(await cache.get(r), { body: '[{"name":"A"}]', stale: false });
+    await cache.get(r);
+    assert.equal(calls, 1);
+    t = 5000; down = true;
+    assert.deepEqual(await cache.get(r), { body: '[{"name":"A"}]', stale: true });
+    await assert.rejects(cache.get(req('stations/search', { tagList: 'news' })));
+  });
+
+  it('tries the next mirror and refuses non-JSON bodies', async () => {
+    const seen = [];
+    const cache = createStationsCache({
+      servers: ['https://a', 'https://b', 'https://c'],
+      fetchFn: async url => {
+        seen.push(url.slice(0, 9));
+        if (url.startsWith('https://a')) return { ok: false, status: 503, text: async () => 'no available server' };
+        if (url.startsWith('https://b')) return { ok: true, status: 200, text: async () => '<html>' };
+        return ok([]);
+      },
+    });
+    assert.equal((await cache.get(req('countries'))).body, '[]');
+    assert.deepEqual(seen, ['https://a', 'https://b', 'https://c']);
   });
 });

@@ -3,6 +3,11 @@ package com.guzelradio.data
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import okhttp3.Interceptor
+import okhttp3.OkHttpClient
+import okhttp3.Response
+import java.io.IOException
+import java.util.concurrent.TimeUnit
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
@@ -10,7 +15,15 @@ class RadioRepository private constructor(context: Context) {
 
     companion object {
         private const val TAG = "RadioRepository"
-        private const val RADIO_BROWSER_BASE = "https://de1.api.radio-browser.info/json/"
+        // Our caching proxy first (it keeps serving the last list during Radio Browser outages),
+        // then Radio Browser's own mirrors.
+        private const val RADIO_BROWSER_BASE = "https://radio.recepguzel.com/api/rb/json/"
+        private const val CACHE_PATH_PREFIX = "/api/rb/json/"
+        private val RADIO_BROWSER_HOSTS = listOf(
+            "de1.api.radio-browser.info",
+            "de2.api.radio-browser.info",
+            "fi1.api.radio-browser.info"
+        )
         private const val HEALTH_BASE = "https://radio.recepguzel.com/"
         private const val PREFS_NAME = "guzel_radio_prefs"
         private const val PREFS_KEY_FAVORITES = "favorites"
@@ -27,8 +40,40 @@ class RadioRepository private constructor(context: Context) {
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
+    /** Retries a failed list request (5xx, network error) on each Radio Browser mirror in turn. */
+    private val mirrorFailover = Interceptor { chain ->
+        val request = chain.request()
+        var lastError: IOException? = null
+        var lastResponse: Response? = null
+        val attempts = listOf(request.url) + RADIO_BROWSER_HOSTS.map { host ->
+            request.url.newBuilder()
+                .host(host)
+                .encodedPath("/json/" + request.url.encodedPath.removePrefix(CACHE_PATH_PREFIX))
+                .build()
+        }
+        for (url in attempts) {
+            lastResponse?.close()
+            lastResponse = null
+            try {
+                val response = chain.proceed(request.newBuilder().url(url).build())
+                if (response.code < 500) return@Interceptor response
+                lastResponse = response
+            } catch (e: IOException) {
+                lastError = e
+            }
+        }
+        lastResponse ?: throw (lastError ?: IOException("No station server available"))
+    }
+
+    private val radioBrowserClient: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .addInterceptor(mirrorFailover)
+        .build()
+
     private val radioBrowserRetrofit: Retrofit = Retrofit.Builder()
         .baseUrl(RADIO_BROWSER_BASE)
+        .client(radioBrowserClient)
         .addConverterFactory(GsonConverterFactory.create())
         .build()
 
