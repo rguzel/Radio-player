@@ -28,9 +28,11 @@ import com.guzelradio.R
 import com.guzelradio.data.Category
 import com.guzelradio.data.RadioRepository
 import com.guzelradio.data.Station
+import com.guzelradio.widget.RadioWidgetProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class RadioPlaybackService : MediaBrowserServiceCompat() {
@@ -49,6 +51,14 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
         const val ACTION_PLAY = "com.guzelradio.ACTION_PLAY"
         const val ACTION_PAUSE = "com.guzelradio.ACTION_PAUSE"
         const val ACTION_STOP = "com.guzelradio.ACTION_STOP"
+        const val ACTION_NEXT = "com.guzelradio.ACTION_NEXT"
+        const val ACTION_PREVIOUS = "com.guzelradio.ACTION_PREVIOUS"
+
+        // Last played station, so the widget can resume after process death
+        private const val PREFS_LAST_STATION = "last_station"
+
+        // Backoff between reconnect attempts when a stream drops
+        private val RETRY_DELAYS_MS = listOf(2_000L, 4_000L, 8_000L, 15_000L, 30_000L)
 
         // Custom extras key for passing station data
         const val EXTRA_STREAM_URL = "stream_url"
@@ -84,6 +94,11 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
     // Set when skip next/previous has nowhere to go (no queue, no favorites),
     // surfaced to the UI via the media session's playback state.
     private var skipUnavailableMessage: String? = null
+
+    // Pending reconnect after a stream error, and how many have been used up
+    private var retryJob: Job? = null
+    private var retryAttempt = 0
+    private val isRetrying get() = retryJob?.isActive == true
 
     override fun onCreate() {
         super.onCreate()
@@ -152,6 +167,7 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
 
             override fun onPlaybackStateChanged(state: Int) {
                 updatePlaybackState()
+                if (state == Player.STATE_READY) retryAttempt = 0
                 if (state == Player.STATE_READY && (exoPlayer.playWhenReady)) {
                     if (!playReported) {
                         playReported = true
@@ -171,11 +187,24 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
 
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 Log.e(TAG, "ExoPlayer error", error)
-                playReported = false
-                currentUuid?.let { uuid ->
-                    serviceScope.launch(Dispatchers.IO) {
-                        repository.reportFailure(uuid)
+                val delayMs = RETRY_DELAYS_MS.getOrNull(retryAttempt)
+                if (delayMs != null) {
+                    retryAttempt++
+                    retryJob = serviceScope.launch {
+                        delay(delayMs)
+                        retryJob = null
+                        exoPlayer.prepare()
                     }
+                } else {
+                    // Only a stream that never came back counts against the station
+                    retryAttempt = 0
+                    playReported = false
+                    currentUuid?.let { uuid ->
+                        serviceScope.launch(Dispatchers.IO) {
+                            repository.reportFailure(uuid)
+                        }
+                    }
+                    updateNotification()
                 }
                 updatePlaybackState()
             }
@@ -216,6 +245,7 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
 
     private fun updatePlaybackState() {
         val state = when {
+            isRetrying -> PlaybackStateCompat.STATE_BUFFERING
             exoPlayer.playbackState == Player.STATE_BUFFERING -> PlaybackStateCompat.STATE_BUFFERING
             exoPlayer.isPlaying -> PlaybackStateCompat.STATE_PLAYING
             exoPlayer.playbackState == Player.STATE_ENDED -> PlaybackStateCompat.STATE_STOPPED
@@ -229,11 +259,54 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
             stateBuilder.setErrorMessage(0, null)
         }
         mediaSession.setPlaybackState(stateBuilder.build())
+        updateWidget()
+    }
+
+    private fun updateWidget() {
+        // Nothing loaded yet: keep whatever the widget last showed
+        val name = currentStation?.name ?: return
+        val status = when {
+            exoPlayer.isPlaying -> RadioWidgetProvider.Status.PLAYING
+            isRetrying -> RadioWidgetProvider.Status.BUFFERING
+            exoPlayer.playbackState == Player.STATE_BUFFERING && exoPlayer.playWhenReady ->
+                RadioWidgetProvider.Status.BUFFERING
+            else -> RadioWidgetProvider.Status.PAUSED
+        }
+        RadioWidgetProvider.update(this, name, status)
+    }
+
+    private fun cancelRetry() {
+        retryJob?.cancel()
+        retryJob = null
+        retryAttempt = 0
+    }
+
+    /** Plays the current or last remembered station, if there is one. */
+    private fun resumeLastStation() {
+        val station = currentStation
+        if (station != null) {
+            playStation(station)
+            return
+        }
+        val prefs = getSharedPreferences(PREFS_LAST_STATION, MODE_PRIVATE)
+        val url = prefs.getString(EXTRA_STREAM_URL, null)
+        if (url == null) {
+            stopSelf()
+            return
+        }
+        playStream(
+            url,
+            prefs.getString(EXTRA_STATION_NAME, null),
+            prefs.getString(EXTRA_STATION_UUID, null),
+            prefs.getString(EXTRA_FAVICON_URL, null),
+        )
     }
 
     private fun updateNotification() {
         val notification = buildNotification()
-        if (exoPlayer.isPlaying || exoPlayer.playbackState == Player.STATE_BUFFERING) {
+        // Stay in the foreground while reconnecting: Android may refuse to let
+        // us back in from the background once the retry succeeds.
+        if (exoPlayer.isPlaying || exoPlayer.playbackState == Player.STATE_BUFFERING || isRetrying) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
                     NOTIFICATION_ID, 
@@ -251,7 +324,7 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
     }
 
     private fun buildNotification(): Notification {
-        val playPauseAction = if (exoPlayer.isPlaying) {
+        val playPauseAction = if (exoPlayer.isPlaying || isRetrying) {
             NotificationCompat.Action(
                 android.R.drawable.ic_media_pause,
                 "Pause",
@@ -281,7 +354,7 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(stationName)
-            .setContentText(if (exoPlayer.isPlaying) "Playing" else if (exoPlayer.playbackState == Player.STATE_BUFFERING) "Buffering…" else "Paused")
+            .setContentText(if (exoPlayer.isPlaying) "Playing" else if (isRetrying) "Reconnecting…" else if (exoPlayer.playbackState == Player.STATE_BUFFERING) "Buffering…" else "Paused")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(contentIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -308,9 +381,12 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_PLAY -> exoPlayer.play()
-            ACTION_PAUSE -> exoPlayer.pause()
+            ACTION_PLAY -> resume()
+            ACTION_PAUSE -> pause()
+            ACTION_NEXT -> mediaSession.controller.transportControls.skipToNext()
+            ACTION_PREVIOUS -> mediaSession.controller.transportControls.skipToPrevious()
             ACTION_STOP -> {
+                cancelRetry()
                 exoPlayer.stop()
                 stopSelf()
             }
@@ -335,6 +411,22 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
         return START_STICKY
     }
 
+    private fun resume() {
+        // Idle means nothing is prepared (fresh process, or after an error),
+        // where play() alone would do nothing.
+        if (exoPlayer.playbackState == Player.STATE_IDLE) resumeLastStation() else exoPlayer.play()
+    }
+
+    private fun pause() {
+        val wasRetrying = isRetrying
+        cancelRetry()
+        exoPlayer.pause()
+        if (wasRetrying) {
+            updatePlaybackState()
+            updateNotification()
+        }
+    }
+
     fun playStation(station: Station) {
         playStream(station.streamUrl, station.name, station.uuid, station.favicon)
     }
@@ -345,6 +437,7 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
         uuid: String?,
         faviconUrl: String?
     ) {
+        cancelRetry()
         currentUuid = uuid
         playReported = false
         skipUnavailableMessage = null
@@ -385,7 +478,15 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
         exoPlayer.prepare()
         exoPlayer.playWhenReady = true
 
+        getSharedPreferences(PREFS_LAST_STATION, MODE_PRIVATE).edit()
+            .putString(EXTRA_STREAM_URL, url)
+            .putString(EXTRA_STATION_NAME, name)
+            .putString(EXTRA_STATION_UUID, uuid)
+            .putString(EXTRA_FAVICON_URL, faviconUrl)
+            .apply()
+
         updateNotification()
+        updateWidget()
     }
 
     // ── MediaBrowserServiceCompat ─────────────────────────────────────────────
@@ -463,16 +564,17 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
     private inner class MediaSessionCallback : MediaSessionCompat.Callback() {
 
         override fun onPlay() {
-            exoPlayer.play()
+            resume()
             updateNotification()
         }
 
         override fun onPause() {
-            exoPlayer.pause()
+            pause()
             updateNotification()
         }
 
         override fun onStop() {
+            cancelRetry()
             exoPlayer.stop()
             stopForeground(STOP_FOREGROUND_REMOVE)
             mediaSession.isActive = false
@@ -497,8 +599,8 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
 
         override fun onCustomAction(action: String?, extras: Bundle?) {
             when (action) {
-                ACTION_PLAY -> exoPlayer.play()
-                ACTION_PAUSE -> exoPlayer.pause()
+                ACTION_PLAY -> resume()
+                ACTION_PAUSE -> pause()
             }
         }
 
@@ -556,6 +658,10 @@ class RadioPlaybackService : MediaBrowserServiceCompat() {
     }
 
     override fun onDestroy() {
+        cancelRetry()
+        currentStation?.let {
+            RadioWidgetProvider.update(this, it.name, RadioWidgetProvider.Status.PAUSED)
+        }
         mediaSession.isActive = false
         mediaSession.release()
         exoPlayer.release()

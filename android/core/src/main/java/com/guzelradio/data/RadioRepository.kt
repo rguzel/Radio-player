@@ -2,6 +2,7 @@ package com.guzelradio.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.google.gson.Gson
 import android.util.Log
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
@@ -27,6 +28,7 @@ class RadioRepository private constructor(context: Context) {
         private const val HEALTH_BASE = "https://radio.recepguzel.com/"
         private const val PREFS_NAME = "guzel_radio_prefs"
         private const val PREFS_KEY_FAVORITES = "favorites"
+        private const val PREFS_KEY_FAVORITES_CACHE = "favorites_cache"
         private const val PREFS_KEY_COUNTRY = "selected_country"
 
         @Volatile
@@ -45,10 +47,10 @@ class RadioRepository private constructor(context: Context) {
         val request = chain.request()
         var lastError: IOException? = null
         var lastResponse: Response? = null
-        val attempts = listOf(request.url) + RADIO_BROWSER_HOSTS.map { host ->
-            request.url.newBuilder()
+        val attempts = listOf(request.url()) + RADIO_BROWSER_HOSTS.map { host ->
+            request.url().newBuilder()
                 .host(host)
-                .encodedPath("/json/" + request.url.encodedPath.removePrefix(CACHE_PATH_PREFIX))
+                .encodedPath("/json/" + request.url().encodedPath().removePrefix(CACHE_PATH_PREFIX))
                 .build()
         }
         for (url in attempts) {
@@ -56,7 +58,7 @@ class RadioRepository private constructor(context: Context) {
             lastResponse = null
             try {
                 val response = chain.proceed(request.newBuilder().url(url).build())
-                if (response.code < 500) return@Interceptor response
+                if (response.code() < 500) return@Interceptor response
                 lastResponse = response
             } catch (e: IOException) {
                 lastError = e
@@ -150,11 +152,21 @@ class RadioRepository private constructor(context: Context) {
         if (uuids.isEmpty()) return emptyList()
         return try {
             val stations = radioBrowserApi.getStationsByUuid(uuids = uuids.joinToString(","))
+            prefs.edit().putString(PREFS_KEY_FAVORITES_CACHE, Gson().toJson(stations)).apply()
             mergeHealth(stations)
         } catch (e: Exception) {
             Log.e(TAG, "fetchFavoriteStations failed", e)
             emptyList()
         }
+    }
+
+    /** Last favorites fetched from the network, for use offline (e.g. the favorites widget). */
+    fun getCachedFavoriteStations(): List<Station> {
+        val json = prefs.getString(PREFS_KEY_FAVORITES_CACHE, null) ?: return emptyList()
+        val favorites = getFavorites()
+        return runCatching { Gson().fromJson(json, Array<Station>::class.java).toList() }
+            .getOrDefault(emptyList())
+            .filter { it.uuid in favorites }
     }
 
     fun getSelectedCountry(): String = prefs.getString(PREFS_KEY_COUNTRY, "Türkiye") ?: "Türkiye"

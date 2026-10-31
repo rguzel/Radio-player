@@ -20,4 +20,14 @@
     <string name="load_more">Load More</string>
     <string name="no_stations">No stations found</string>
     <string name="favorites">Favorites</string>
+    <string name="widget_description">Play, pause and skip your radio from the home screen</string>
+    <string name="widget_tap_to_play">Tap play to resume</string>
+    <string name="widget_playing">Playing</string>
+    <string name="widget_buffering">Buffering…</string>
+    <string name="widget_paused">Paused</string>
+    <string name="widget_previous">Previous station</string>
+    <string name="widget_next">Next station</string>
+    <string name="widget_play_pause">Play or pause</string>
+    <string name="favorites_widget_description">One-tap play for your favorite stations</string>
+    <string name="favorites_widget_empty">Heart a station to see it here</string>
 </resources>

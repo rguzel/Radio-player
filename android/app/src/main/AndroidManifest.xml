@@ -40,6 +40,34 @@
             </intent-filter>
         </service>
 
+        <!-- Home-screen widget -->
+        <receiver
+            android:name=".widget.RadioWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/radio_widget_info" />
+        </receiver>
+
+        <!-- Favorites home-screen widget -->
+        <receiver
+            android:name=".widget.FavoritesWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/favorites_widget_info" />
+        </receiver>
+        <service
+            android:name=".widget.FavoritesWidgetService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+
         <!-- Android Auto metadata -->
         <meta-data
             android:name="com.google.android.gms.car.application"

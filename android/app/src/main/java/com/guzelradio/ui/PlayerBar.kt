@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.painterResource
 import coil.compose.AsyncImage
 import com.guzelradio.R
 import com.guzelradio.data.Station
@@ -76,7 +77,6 @@ fun PlayerBar(
             // Station logo / initials
             StationAvatar(
                 faviconUrl = station.favicon,
-                initials = station.initials,
                 size = 40
             )
 
@@ -155,7 +155,6 @@ fun PlayerBar(
 @Composable
 fun StationAvatar(
     faviconUrl: String?,
-    initials: String,
     size: Int,
     modifier: Modifier = Modifier
 ) {
@@ -166,26 +165,19 @@ fun StationAvatar(
             .clip(CircleShape)
             .background(Color(0xFF334155))
     ) {
-        val model = if (!faviconUrl.isNullOrBlank()) faviconUrl else R.drawable.ic_placeholder_radio
-        
+        // Covers a missing logo as well as one that fails to load or decode
+        val placeholder = painterResource(R.drawable.ic_placeholder_radio)
+
         AsyncImage(
-            model = model,
+            model = faviconUrl?.takeIf { it.isNotBlank() },
+            placeholder = placeholder,
+            error = placeholder,
+            fallback = placeholder,
             contentDescription = null,
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .size(size.dp)
-                .clip(CircleShape),
-            onError = { /* will show initials below */ }
+                .clip(CircleShape)
         )
-        
-        // Initials rendered under image; if image loads it covers this
-        if (faviconUrl.isNullOrBlank()) {
-            Text(
-                text = initials,
-                color = AccentColor,
-                fontSize = (size / 3).sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
     }
 }

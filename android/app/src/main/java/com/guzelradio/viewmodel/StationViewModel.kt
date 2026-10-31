@@ -16,6 +16,7 @@ import com.guzelradio.data.Country
 import com.guzelradio.data.RadioRepository
 import com.guzelradio.data.Station
 import com.guzelradio.service.RadioPlaybackService
+import com.guzelradio.widget.FavoritesWidgetProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -323,6 +324,7 @@ class StationViewModel(application: Application) : AndroidViewModel(application)
 
     fun toggleFavorite(uuid: String) {
         repository.toggleFavorite(uuid)
+        FavoritesWidgetProvider.refresh(getApplication())
         _favorites.value = repository.getFavorites()
     }
 

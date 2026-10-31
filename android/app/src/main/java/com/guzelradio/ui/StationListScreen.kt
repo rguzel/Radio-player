@@ -532,7 +532,6 @@ fun StationCard(
         Box(contentAlignment = Alignment.BottomEnd) {
             StationAvatar(
                 faviconUrl = station.favicon,
-                initials = station.initials,
                 size = 56
             )
             HealthDot(healthScore = station.healthScore)
