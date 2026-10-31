@@ -21,6 +21,10 @@
 //   200 { period, countries: [{ country, plays }] }   plays per listener country
 //       (ISO 3166 alpha-2; "XX" = unknown)
 //
+//   GET /api/rb/json/<stations/bycountry/<name> | stations/search | stations/byuuid | countries>
+//   Radio Browser's station lists, cached; stale copies are served while all
+//   mirrors are down (X-Cache: stale). 404 for any other path or parameter.
+//
 // Endpoints take a station uuid rather than a stream URL so they can't be used
 // to make this server fetch arbitrary addresses.
 
@@ -30,6 +34,7 @@ import { pathToFileURL } from 'node:url';
 import { createSafeLookup, readStreamTitle } from './icy.mjs';
 import { createNowPlayingService } from './nowplaying.mjs';
 import { createPlayStats, PERIOD_HOURS } from './plays.mjs';
+import { createStationsCache, defaultWarmRequests, normalizeRequest } from './stations-cache.mjs';
 import { createStreamRelay } from './stream-relay.mjs';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -49,9 +54,28 @@ function clientAddress(req) {
   return (typeof realIp === 'string' && realIp) || req.socket.remoteAddress || 'unknown';
 }
 
-export function createServer(service, relay, plays) {
+export function createServer(service, relay, plays, stations) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://localhost');
+    if (stations && url.pathname.startsWith('/api/rb/json/')) {
+      if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, { error: 'Method not allowed' });
+      const request = normalizeRequest(decodeURIComponent(url.pathname.slice('/api/rb/json/'.length)), url.searchParams);
+      if (!request) return send(res, 404, { error: 'Not found' });
+      try {
+        const { body, stale } = await stations.get(request);
+        res.writeHead(200, {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': stale ? 'no-store' : 'public, max-age=60',
+          'X-Cache': stale ? 'stale' : 'ok',
+          'X-Content-Type-Options': 'nosniff',
+        });
+        return res.end(req.method === 'HEAD' ? undefined : body);
+      } catch (error) {
+        console.error(`stations ${request.key}:`, error.message);
+        return send(res, 502, { error: 'Station directory unavailable' });
+      }
+    }
+
     const route = {
       '/api/nowplaying': { methods: ['GET', 'HEAD'], enabled: true },
       '/api/stream': { methods: ['GET', 'HEAD'], enabled: Boolean(relay) },
@@ -115,7 +139,14 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   setInterval(() => plays.save(), 60_000).unref();
   if (!playsFile) console.warn('play stats are not persisted: set PLAYS_FILE or StateDirectory=');
 
-  const server = createServer(service, relay, plays).listen(port, host, () => {
+  const stationsFile = process.env.STATIONS_CACHE_FILE ?? (stateDir ? path.join(stateDir, 'stations-cache.json') : null);
+  const stations = createStationsCache({ file: stationsFile });
+  await stations.load();
+  const warmStations = () => stations.warm(defaultWarmRequests());
+  warmStations();
+  setInterval(warmStations, 30 * 60_000).unref();
+
+  const server = createServer(service, relay, plays, stations).listen(port, host, () => {
     console.log(`listening on http://${host}:${port} (/api/nowplaying, /api/stream, /api/plays)`);
   });
 
